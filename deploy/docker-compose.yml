@@ -1,0 +1,68 @@
+# Home server stack. Nothing listens on the host: Cloudflare Tunnel publishes
+# api.<domain> → http://api:3000 and mcp.<domain> → http://mcp:3001 (configure in the Zero Trust dashboard).
+name: gamecollabs
+
+services:
+  mongo:
+    image: mongo:8
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    # Single-node replica set (transactions, change streams). The healthcheck initiates it on first boot.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/daniel2231/gamecollabs-api:latest}
+    build: { context: .., target: api }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/gamecollabs?replicaSet=rs0
+      PORT: "3000"
+      SCHEDULER_ENABLED: "true"
+      EXPORT_DIR: /app/exports
+    volumes:
+      - ./exports:/app/exports
+    depends_on:
+      mongo: { condition: service_healthy }
+
+  mcp:
+    image: ${MCP_IMAGE:-ghcr.io/daniel2231/gamecollabs-mcp:latest}
+    build: { context: .., target: mcp }
+    restart: unless-stopped
+    env_file: .env.mcp
+    environment:
+      API_URL: http://api:3000
+      PORT: "3001"
+      DATA_DIR: /app/data
+    volumes:
+      - mcp-data:/app/data
+    depends_on: [api]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "run"]
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: [api, mcp]
+
+  # Daily mongodump to the R2 `backups` bucket (kept 30 days).
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    env_file: .env.backup
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/gamecollabs?replicaSet=rs0
+    depends_on:
+      mongo: { condition: service_healthy }
+
+volumes:
+  mongo-data:
+  mcp-data:
