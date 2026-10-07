@@ -1,8 +1,9 @@
 import { Schema, model, type HydratedDocument, type InferSchemaType } from "mongoose";
 import { indexTokens, nameKey } from "../lib/text.js";
 
+/** Korean and English names are required; the original-script name is optional. */
 const nameSchema = new Schema(
-  { ko: { type: String, default: null }, en: { type: String, default: null }, original: { type: String, default: null } },
+  { ko: { type: String, required: true, trim: true }, en: { type: String, required: true, trim: true }, original: { type: String, default: null } },
   { _id: false },
 );
 

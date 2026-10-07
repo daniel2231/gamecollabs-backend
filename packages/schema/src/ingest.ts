@@ -12,10 +12,9 @@ const TaxonomyValue = z.string().trim().min(1).max(80);
  * One collab found by an automated collector (GPT, agents). Names and
  * classification values are free text; the server resolves them.
  */
-export const IngestCandidate = z
-  .object({
-    title: z.object({ ko: Name.nullish(), en: Name.nullish() }),
-    summary: z.object({ ko: z.string().trim().max(4000).nullish(), en: z.string().trim().max(4000).nullish() }).default({}),
+export const IngestCandidate = z.object({
+    title: z.object({ ko: Name, en: Name }),
+    summary: z.object({ ko: z.string().trim().min(1).max(4000), en: z.string().trim().min(1).max(4000) }),
     game: z.object({ name: Name, slug: Slug.nullish() }),
     partner: z.object({ name: Name, slug: Slug.nullish(), kind: TaxonomyValue.nullish() }),
     companies: z.array(z.object({ name: Name, role: CompanyRole.default("unspecified") })).max(10).default([]),
@@ -42,8 +41,7 @@ export const IngestCandidate = z
     coverImageUrl: HttpUrl.nullish(),
     confidence: z.number().min(0).max(1).nullish(),
     notes: z.string().trim().max(2000).nullish(),
-  })
-  .refine((c) => !!(c.title.ko || c.title.en), { message: "title.ko or title.en is required", path: ["title"] });
+  });
 export type IngestCandidate = z.infer<typeof IngestCandidate>;
 
 /** Body of `POST /v1/ingest/candidates`. Items are validated one by one. */

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CsvList, HttpUrl, IsoDate, IsoDateOrMonth, Locale, ObjectIdString, Slug } from "./common.js";
+import { Bilingual, CsvList, HttpUrl, IsoDate, IsoDateOrMonth, Locale, ObjectIdString, Slug } from "./common.js";
 import { TaxonomyKey, keyOf } from "./taxonomy.js";
 
 export const COLLAB_STATUSES = ["draft", "in_review", "published", "archived"] as const;
@@ -33,16 +33,21 @@ export const ORIGIN_TYPES = ["manual", "gpt", "agent", "migration"] as const;
 
 const Text = (max: number) => z.string().trim().max(max).nullish();
 
+const Required = (max: number) => z.string().trim().min(1).max(max);
+
 export const CollabLocaleText = z.object({
-  title: Text(200),
-  summary: Text(4000),
+  title: Required(200),
+  summary: Required(4000),
   note: Text(2000),
 });
 
-export const CollabI18n = z.object({
-  ko: CollabLocaleText.default({}),
-  en: CollabLocaleText.extend({ machineTranslated: z.boolean().optional() }).default({}),
-});
+/** Korean and English are both required: title and summary in each language, a note in both or neither. */
+export const CollabI18n = z
+  .object({
+    ko: CollabLocaleText,
+    en: CollabLocaleText.extend({ machineTranslated: z.boolean().optional() }),
+  })
+  .refine((t) => !t.ko.note === !t.en.note, { message: "note must be given in both languages or neither", path: ["en", "note"] });
 
 export const PartyInput = z
   .object({
@@ -51,9 +56,9 @@ export const PartyInput = z
     /** partner_category key. Taken from the property when omitted. */
     kind: keyOf("partner_category").nullish(),
     /** Only used for parties not yet linked to a property (drafts). */
-    name: z.object({ ko: Text(200), en: Text(200) }).nullish(),
+    name: Bilingual(200).nullish(),
   })
-  .refine((p) => p.propertyId || p.name?.ko || p.name?.en, {
+  .refine((p) => p.propertyId || p.name, {
     message: "either propertyId or name is required",
   });
 export type PartyInput = z.infer<typeof PartyInput>;
@@ -94,14 +99,14 @@ export const CoverInput = z.object({
   originalUrl: HttpUrl.nullish(),
   storageKey: z.string().max(512).nullish(),
   credit: Text(120),
-  alt: z.object({ ko: Text(300), en: Text(300) }).nullish(),
+  alt: Bilingual(300).nullish(),
   width: z.number().int().positive().nullish(),
   height: z.number().int().positive().nullish(),
 });
 
 export const CollabInput = z.object({
   slug: Slug.optional(),
-  i18n: CollabI18n.default({ ko: {}, en: {} }),
+  i18n: CollabI18n,
   parties: z.array(PartyInput).max(10).default([]),
   companies: z.array(CompanyRefInput).max(20).default([]),
   category: keyOf("category").nullish(),

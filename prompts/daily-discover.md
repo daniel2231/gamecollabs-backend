@@ -23,9 +23,11 @@ Today is {{TODAY}}.
 - Only state what the source states. If a date is not announced, omit it rather than guess;
   use `YYYY-MM` when only the month is known and `endKind: "tba"` when the end is undecided,
   `"permanent"` when the content stays.
-- `title`: "<Game> × <Partner>" in Korean and English when you know both names.
-- `summary`: 1–3 neutral sentences on what the collab adds (items, characters, events, period).
-  Write Korean (`summary.ko`) and English (`summary.en`) when you can do so accurately.
+- Korean and English are both required for `title` and `summary`; a candidate missing either is rejected.
+- `title`: "<게임> × <파트너>" in Korean and "<Game> x <Partner>" in English, using the official
+  Korean and English names (check `find_entity` first).
+- `summary`: 1–3 neutral sentences on what the collab adds (items, characters, events, period),
+  written in both Korean (`summary.ko`) and English (`summary.en`).
 - No sales, revenue or player-count estimates. No rumours or leaks.
 - Set `confidence` (0–1) to how sure you are that the collab is real and correctly described.
 - If nothing new was announced, submit nothing and say so.

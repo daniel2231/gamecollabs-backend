@@ -9,8 +9,9 @@ const INSTRUCTIONS = `Game × IP collab tracker (public sources, human-reviewed)
 Workflow: call get_taxonomy once, research collabs announced in the requested window,
 check each with search_collabs and find_entity, then submit only new ones with
 submit_collab_candidates (max ${MAX_CANDIDATES_PER_CALL} per call). Submissions are stored as drafts
-and published only after a person reviews them. Every candidate needs at least one
-public source URL; never invent dates or details that the source does not state.`;
+and published only after a person reviews them. Every candidate needs a title and a summary
+in both Korean and English, and at least one public source URL; never invent dates or
+details that the source does not state.`;
 
 function json(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };

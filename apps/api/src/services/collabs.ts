@@ -23,8 +23,9 @@ import { search } from "../search/provider.js";
 
 type Snapshot = { ko: string | null; en: string | null };
 
-export function snapshotName(name: { ko?: string | null; en?: string | null; original?: string | null }): Snapshot {
-  return { ko: name.ko || name.en || name.original || null, en: name.en || name.ko || name.original || null };
+/** Name copy kept on collabs; entities always carry both languages. */
+export function snapshotName(name: { ko?: string | null; en?: string | null }): Snapshot {
+  return { ko: name.ko ?? null, en: name.en ?? null };
 }
 
 /* ------------------------------------------------------------------ input → document */
@@ -58,7 +59,7 @@ async function resolveParties(parties: PartyInput[], session?: ClientSession) {
   const byId = new Map(props.map((p) => [p._id.toString(), p]));
   return parties.map((p, i) => {
     if (!p.propertyId) {
-      return { propertyId: null, slug: null, role: p.role, kind: p.kind ?? null, name: snapshotName(p.name ?? {}) };
+      return { propertyId: null, slug: null, role: p.role, kind: p.kind ?? null, name: snapshotName(p.name!) };
     }
     const prop = byId.get(p.propertyId);
     if (!prop) throw validationFailed({ [`parties.${i}.propertyId`]: ["property not found"] });
@@ -79,12 +80,12 @@ async function resolveCompanies(companies: CollabInput["companies"], session?: C
 
 function i18nOf(input: CollabInput["i18n"]) {
   return {
-    ko: { title: input.ko?.title ?? null, summary: input.ko?.summary ?? null, note: input.ko?.note ?? null },
+    ko: { title: input.ko.title, summary: input.ko.summary, note: input.ko.note ?? null },
     en: {
-      title: input.en?.title ?? null,
-      summary: input.en?.summary ?? null,
-      note: input.en?.note ?? null,
-      machineTranslated: !!input.en?.machineTranslated,
+      title: input.en.title,
+      summary: input.en.summary,
+      note: input.en.note ?? null,
+      machineTranslated: !!input.en.machineTranslated,
     },
   };
 }
@@ -346,8 +347,10 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
 export function assertPublishable(doc: CollabDoc) {
   const fields: Record<string, string[]> = {};
   const add = (k: string, m: string) => (fields[k] ??= []).push(m);
-  if (!doc.i18n?.ko?.title) add("i18n.ko.title", "required to publish");
-  if (!doc.i18n?.ko?.summary) add("i18n.ko.summary", "required to publish");
+  for (const locale of ["ko", "en"] as const) {
+    if (!doc.i18n?.[locale]?.title) add(`i18n.${locale}.title`, "required to publish");
+    if (!doc.i18n?.[locale]?.summary) add(`i18n.${locale}.summary`, "required to publish");
+  }
   if (!doc.parties.some((p) => p.role === "host")) add("parties", "a host party is required");
   if (!doc.parties.some((p) => p.role === "partner")) add("parties", "a partner party is required");
   doc.parties.forEach((p, i) => {

@@ -14,9 +14,11 @@ import { taxonomy } from "../services/taxonomy.js";
 
 const str = { type: String, default: null };
 
-const localeText = new Schema({ title: str, summary: str, note: str }, { _id: false });
+/** Title and summary are required in both languages; the note is optional. */
+const requiredText = { type: String, required: true, trim: true };
+const localeText = new Schema({ title: requiredText, summary: requiredText, note: str }, { _id: false });
 const enText = new Schema(
-  { title: str, summary: str, note: str, machineTranslated: { type: Boolean, default: false } },
+  { title: requiredText, summary: requiredText, note: str, machineTranslated: { type: Boolean, default: false } },
   { _id: false },
 );
 const snapshotName = new Schema({ ko: str, en: str }, { _id: false });
@@ -76,8 +78,8 @@ const collabSchema = new Schema(
     slug: { type: String, required: true },
     status: { type: String, enum: COLLAB_STATUSES, default: "draft", required: true },
     i18n: {
-      ko: { type: localeText, default: () => ({}) },
-      en: { type: enText, default: () => ({}) },
+      ko: { type: localeText, required: true },
+      en: { type: enText, required: true },
     },
     parties: { type: [partySchema], default: [] },
     companies: { type: [companyRefSchema], default: [] },

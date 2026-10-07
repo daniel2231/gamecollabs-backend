@@ -22,19 +22,12 @@ export const HttpUrl = z.url({ protocol: /^https?$/ }).max(2048);
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 
-/** Names of a property or company in each language plus the original-script name. */
-export const EntityName = z.object({
-  ko: trimmed(200).nullish(),
-  en: trimmed(200).nullish(),
-  original: trimmed(200).nullish(),
-});
-export type EntityName = z.infer<typeof EntityName>;
+/** Every user-facing text is stored in both Korean and English; neither may be empty. */
+export const Bilingual = (max: number) => z.object({ ko: trimmed(max), en: trimmed(max) });
 
-export const LocalizedText = (max: number) =>
-  z.object({
-    ko: z.string().trim().max(max).nullish(),
-    en: z.string().trim().max(max).nullish(),
-  });
+/** Names of a property or company: Korean and English required, original-script name optional. */
+export const EntityName = Bilingual(200).extend({ original: trimmed(200).nullish() });
+export type EntityName = z.infer<typeof EntityName>;
 
 /** Standard error envelope returned by the API. */
 export const ApiError = z.object({

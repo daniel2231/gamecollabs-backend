@@ -93,7 +93,7 @@ export function draftBody(host: string, partner: string, extra: Record<string, u
   return {
     i18n: {
       ko: { title: "배틀그라운드 모바일 × 진격의 거인", summary: "진격의 거인 테마 스킨과 맵이 추가된다." },
-      en: { title: "PUBG Mobile x Attack on Titan" },
+      en: { title: "PUBG Mobile x Attack on Titan", summary: "Attack on Titan themed skins and a map arrive." },
     },
     parties: [
       { propertyId: host, role: "host" },

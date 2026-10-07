@@ -25,7 +25,7 @@ afterAll(teardownDb);
 
 const candidate = (over: Record<string, unknown> = {}) => ({
   title: { ko: "배틀그라운드 모바일 × 진격의 거인", en: "PUBG Mobile x Attack on Titan" },
-  summary: { ko: "콜라보 스킨이 추가된다." },
+  summary: { ko: "콜라보 스킨이 추가된다.", en: "Collab skins are added." },
   game: { name: "PUBG M" },
   partner: { name: "Shingeki no Kyojin", kind: "Anime / Manga" },
   companies: [{ name: "Krafton", role: "publisher" }, { name: "Unknown Co", role: "licensor" }],
@@ -91,6 +91,15 @@ describe("ingest", () => {
     expect(res.body.data.results[0].reasons[0].code).toBe("invalid");
   });
 
+  it("rejects candidates missing either language", async () => {
+    const res = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({ candidates: [candidate({ title: { ko: "제목만" } }), candidate({ summary: { en: "English only" } })] });
+    expect(res.body.data.results.map((r: { status: string }) => r.status)).toEqual(["rejected", "rejected"]);
+    expect(res.body.data.results[0].reasons[0].message).toMatch(/title\.en/);
+    expect(res.body.data.results[1].reasons[0].message).toMatch(/summary\.ko/);
+  });
+
   it("caps candidates per call and per day", async () => {
     const many = Array.from({ length: 21 }, () => candidate());
     expect((await as(ingest).post("/v1/ingest/candidates").send({ candidates: many })).status).toBe(422);
@@ -151,7 +160,7 @@ describe("submissions and read-only mode", () => {
   it("blocks writes in read-only mode", async () => {
     setConfig({ ...cfg, READ_ONLY_MODE: true });
     try {
-      const res = await as(admin).post("/v1/admin/properties").send({ slug: "x", kind: "partner_category.game", name: { en: "X" } });
+      const res = await as(admin).post("/v1/admin/properties").send({ slug: "x", kind: "partner_category.game", name: { ko: "엑스", en: "X" } });
       expect(res.status).toBe(503);
       expect(res.body.error.code).toBe("read_only");
       expect((await as(admin).get("/v1/collabs")).status).toBe(200);
@@ -199,6 +208,19 @@ describe("MDX migration", () => {
     expect(aborted.aborted).toBe(true);
   });
 
+  it("refuses files missing a Korean or English text", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tmp = await mkdtemp(join(tmpdir(), "mdx-"));
+    await writeFile(
+      join(tmp, "one-language.mdx"),
+      "---\ngame_title: Game\nip_title: IP\nip_title_ko: 아이피\nsummary_ko: 요약\nstart_date: 2026-01-01\nsource_url: https://example.com/x\n---\n",
+    );
+    const report = await migrateMdx({ dir: tmp, dryRun: true, allowUnmapped: true });
+    expect(report.problems).toEqual(["one-language.mdx: missing game_title_ko", "one-language.mdx: missing summary_en"]);
+  });
+
   it("migrates with an explicit mapping, re-runnable, with a clean reconciliation", async () => {
     const opts = { dir, dryRun: false, allowUnmapped: false, mapping: { platform: { "Offline Retail": null } }, entityMap: { AoT: "Attack on Titan" } };
     const first = await migrateMdx(opts);
@@ -215,7 +237,11 @@ describe("MDX migration", () => {
       sources: [{ url: "https://www.calbee.co.jp/taiko", isPrimary: true }],
     });
     expect(taiko!.companies.map((c) => c.role)).toEqual(["unspecified", "unspecified"]);
+    expect(taiko!.companies[1]!.name).toEqual({ ko: "가루비", en: "Calbee" });
+    expect(taiko!.i18n.en.title).toBe("Taiko no Tatsujin x Jagariko");
     const blood = await Collab.findOne({ slug: "blood-strike-aot-2026-08" }).lean();
+    expect(blood!.i18n.ko.title).toBe("블러드 스트라이크 × 진격의 거인");
+    expect(blood!.i18n.en.title).toBe("Blood Strike x Attack on Titan");
     expect(blood!.platforms).toEqual(["platform.mobile", "platform.ps5"]);
     expect(blood!.parties[1]!.slug).toBe("attack-on-titan");
     const pubg = await Collab.findOne({ slug: "pubg-mobile-attack-on-titan-2026-09" }).lean();

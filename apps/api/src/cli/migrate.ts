@@ -18,11 +18,17 @@ import { taxonomy, type TaxonomyIndex } from "../services/taxonomy.js";
  */
 export const DEFAULT_FIELDS = {
   id: "id",
+  /** Korean title. Built from the Korean names when both titles are missing. */
   title: "title",
   titleEn: "title_en",
+  /** English name of the game; the Korean name comes from `gameKo`. */
   game: "game_title",
+  gameKo: "game_title_ko",
   ip: "ip_title",
+  ipKo: "ip_title_ko",
+  /** English company names, with Korean names at the same positions in `companiesKo`. */
   companies: "companies",
+  companiesKo: "companies_ko",
   status: "status",
   category: "category",
   partnerCategory: "partner_category",
@@ -105,21 +111,35 @@ export async function migrateMdx(opts: MigrateOptions) {
   const canonical = (name: string) => opts.entityMap?.[name] ?? name;
 
   // Pass 1: classification + entity candidates, without writing.
-  type Plan = { item: Item; slug: string; game: string; ip: string; partnerKind: string | null; keys: Record<string, string[]> };
+  // Every title, summary and name must exist in Korean and English; anything missing is a problem.
+  type Names = { en: string; ko: string };
+  type Plan = { item: Item; slug: string; game: Names; ip: Names; companies: Names[]; partnerKind: string | null; keys: Record<string, string[]> };
   const plans: Plan[] = [];
   const problems: string[] = [];
-  const entityNames = new Map<string, { name: string; kind: string | null; variants: Set<string> }>();
-  const companyNames = new Map<string, { name: string; variants: Set<string> }>();
+  const entityNames = new Map<string, Names & { kind: string | null; variants: Set<string> }>();
+  const companyNames = new Map<string, Names & { variants: Set<string> }>();
 
   for (const item of items) {
     const d = item.data;
     const slug = str(d[f.id]) ?? basename(item.file, extname(item.file));
-    const game = str(d[f.game]);
-    const ip = str(d[f.ip]);
-    if (!game || !ip) {
-      problems.push(`${item.file}: missing ${!game ? f.game : f.ip}`);
-      continue;
-    }
+    const missing = (field: string) => problems.push(`${item.file}: missing ${field}`);
+    const gameEn = str(d[f.game]);
+    const gameKo = str(d[f.gameKo]);
+    const ipEn = str(d[f.ip]);
+    const ipKo = str(d[f.ipKo]);
+    const companiesEn = arr(d[f.companies]);
+    const companiesKo = arr(d[f.companiesKo]);
+    const before = problems.length;
+    if (!gameEn) missing(f.game);
+    if (!gameKo) missing(f.gameKo);
+    if (!ipEn) missing(f.ip);
+    if (!ipKo) missing(f.ipKo);
+    if (companiesEn.length !== companiesKo.length) problems.push(`${item.file}: ${f.companies} and ${f.companiesKo} must list the same companies`);
+    if (!str(d[f.summaryKo])) missing(f.summaryKo);
+    if (!str(d[f.summaryEn])) missing(f.summaryEn);
+    if (!str(d[f.title]) !== !str(d[f.titleEn])) missing(str(d[f.title]) ? f.titleEn : f.title);
+    if (problems.length > before) continue;
+
     const [partnerKind = null] = map("partner_category", arr(d[f.partnerCategory]));
     const keys = {
       category: map("category", arr(d[f.category])),
@@ -127,23 +147,25 @@ export async function migrateMdx(opts: MigrateOptions) {
       platforms: map("platform", arr(d[f.platform])),
       collabTypes: map("collab_type", arr(d[f.collabType])),
     };
-    plans.push({ item, slug, game: canonical(game), ip: canonical(ip), partnerKind, keys });
-    for (const [raw, kind] of [
-      [game, tax.map("partner_category", "game")],
-      [ip, partnerKind],
+    const game = { en: canonical(gameEn!), ko: gameKo! };
+    const ip = { en: canonical(ipEn!), ko: ipKo! };
+    const companies = companiesEn.map((en, i) => ({ en: canonical(en), ko: companiesKo[i]! }));
+    plans.push({ item, slug, game, ip, companies, partnerKind, keys });
+    for (const [names, raw, kind] of [
+      [game, gameEn!, tax.map("partner_category", "game")],
+      [ip, ipEn!, partnerKind],
     ] as const) {
-      const name = canonical(raw);
-      const e = entityNames.get(nameKey(name)) ?? { name, kind, variants: new Set<string>() };
+      const e = entityNames.get(nameKey(names.en)) ?? { ...names, kind, variants: new Set<string>() };
       e.variants.add(raw);
       e.kind ??= kind;
-      entityNames.set(nameKey(name), e);
+      entityNames.set(nameKey(names.en), e);
     }
-    for (const raw of arr(d[f.companies])) {
-      const name = canonical(raw);
-      const c = companyNames.get(nameKey(name)) ?? { name, variants: new Set<string>() };
+    companiesEn.forEach((raw, i) => {
+      const names = companies[i]!;
+      const c = companyNames.get(nameKey(names.en)) ?? { ...names, variants: new Set<string>() };
       c.variants.add(raw);
-      companyNames.set(nameKey(name), c);
-    }
+      companyNames.set(nameKey(names.en), c);
+    });
   }
 
   const report = {
@@ -162,50 +184,48 @@ export async function migrateMdx(opts: MigrateOptions) {
 
   // Pass 2: entities (upsert by slug), then collabs.
   const propertyIds = new Map<string, Awaited<ReturnType<typeof Property.findOne>>>();
+  const isName = (v: string, n: Names) => v === n.en || v === n.ko;
   for (const [key, e] of entityNames) {
-    const slug = slugify(e.name) || `property-${key.slice(0, 24)}`;
+    const slug = slugify(e.en) || `property-${key.slice(0, 24)}`;
     let doc = await Property.findOne({ $or: [{ nameKeys: key }, { slug }] });
-    if (!doc) {
-      const hangul = /\p{Script=Hangul}/u.test(e.name);
-      doc = new Property({ slug, kind: e.kind ?? "partner_category.other", name: hangul ? { ko: e.name } : { en: e.name, ko: e.name } });
-    }
-    doc.aliases = [...new Set([...doc.aliases, ...[...e.variants].filter((v) => v !== e.name)])];
+    doc ??= new Property({ slug, kind: e.kind ?? "partner_category.other", name: { ko: e.ko, en: e.en } });
+    doc.aliases = [...new Set([...doc.aliases, ...[...e.variants].filter((v) => !isName(v, e))])];
     await doc.save();
     propertyIds.set(key, doc);
   }
   const companyIds = new Map<string, Awaited<ReturnType<typeof Company.findOne>>>();
   for (const [key, c] of companyNames) {
-    const slug = slugify(c.name) || `company-${key.slice(0, 24)}`;
+    const slug = slugify(c.en) || `company-${key.slice(0, 24)}`;
     let doc = await Company.findOne({ $or: [{ nameKeys: key }, { slug }] });
-    if (!doc) doc = new Company({ slug, name: /\p{Script=Hangul}/u.test(c.name) ? { ko: c.name } : { en: c.name, ko: c.name } });
-    doc.aliases = [...new Set([...doc.aliases, ...[...c.variants].filter((v) => v !== c.name)])];
+    doc ??= new Company({ slug, name: { ko: c.ko, en: c.en } });
+    doc.aliases = [...new Set([...doc.aliases, ...[...c.variants].filter((v) => !isName(v, c))])];
     await doc.save();
     companyIds.set(key, doc);
   }
 
   for (const p of plans) {
     const d = p.item.data;
-    const game = propertyIds.get(nameKey(p.game))!;
-    const ip = propertyIds.get(nameKey(p.ip))!;
+    const game = propertyIds.get(nameKey(p.game.en))!;
+    const ip = propertyIds.get(nameKey(p.ip.en))!;
     const start = dateStr(d[f.start]);
     const end = dateStr(d[f.end]);
     const status = str(d[f.status]) === "archived" ? "archived" : "published";
     const sourceUrl = str(d[f.sourceUrl]);
-    const title = str(d[f.title]) ?? `${p.game} × ${p.ip}`;
-    const titleEn = str(d[f.titleEn]);
+    const title = str(d[f.title]) ?? `${p.game.ko} × ${p.ip.ko}`;
+    const titleEn = str(d[f.titleEn]) ?? `${p.game.en} x ${p.ip.en}`;
     const tags = arr(d[f.tags]);
     const fields = {
       status,
       i18n: {
-        ko: { title, summary: str(d[f.summaryKo]), note: null },
-        en: { title: titleEn, summary: str(d[f.summaryEn]), note: null, machineTranslated: false },
+        ko: { title, summary: str(d[f.summaryKo])!, note: null },
+        en: { title: titleEn, summary: str(d[f.summaryEn])!, note: null, machineTranslated: false },
       },
       parties: [
         { propertyId: game!._id, slug: game!.slug, role: "host", kind: game!.kind, name: snapshotName(game!.name) },
         { propertyId: ip!._id, slug: ip!.slug, role: "partner", kind: p.partnerKind ?? ip!.kind, name: snapshotName(ip!.name) },
       ],
-      companies: arr(d[f.companies]).map((raw) => {
-        const c = companyIds.get(nameKey(canonical(raw)))!;
+      companies: p.companies.map((names) => {
+        const c = companyIds.get(nameKey(names.en))!;
         return { companyId: c!._id, slug: c!.slug, role: "unspecified", name: snapshotName(c!.name) };
       }),
       category: p.keys.category![0] ?? null,

@@ -4,12 +4,10 @@ import { keyOf } from "./taxonomy.js";
 
 const Aliases = z.array(z.string().trim().min(1).max(200)).max(50);
 
-const requireAName = (n: z.infer<typeof EntityName>) => !!(n.ko || n.en || n.original);
-
 export const PropertyInput = z.object({
   slug: Slug,
   kind: keyOf("partner_category"),
-  name: EntityName.refine(requireAName, "at least one name is required"),
+  name: EntityName,
   aliases: Aliases.default([]),
   parentId: ObjectIdString.nullish(),
   officialUrl: HttpUrl.nullish(),
@@ -21,7 +19,7 @@ export type PropertyPatch = z.infer<typeof PropertyPatch>;
 
 export const CompanyInput = z.object({
   slug: Slug,
-  name: EntityName.refine(requireAName, "at least one name is required"),
+  name: EntityName,
   aliases: Aliases.default([]),
   /** ISO 3166-1 alpha-2 */
   country: z

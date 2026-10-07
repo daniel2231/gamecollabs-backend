@@ -7,25 +7,20 @@ import type { TaxonomyIndex } from "./taxonomy.js";
 type Lean<T> = T & { _id: { toString(): string } };
 type LeanCollab = Lean<CollabFields> & { createdAt?: Date; updatedAt?: Date };
 
-type Pair = { ko?: string | null; en?: string | null; original?: string | null } | null | undefined;
+type Pair = { ko?: string | null; en?: string | null } | null | undefined;
 
-const other = (locale: Locale): Locale => (locale === "ko" ? "en" : "ko");
-
-/** Picks the requested language, falling back to the other one. */
+/** Text in the requested language. Every collab and entity stores both, so there is no fallback. */
 export function pick(pair: Pair, locale: Locale): string | null {
-  return pair?.[locale] || pair?.[other(locale)] || pair?.original || null;
+  return pair?.[locale] ?? null;
 }
 
 function localizedText(doc: LeanCollab, locale: Locale) {
-  const primary = doc.i18n?.[locale] ?? {};
-  const secondary = doc.i18n?.[other(locale)] ?? {};
-  const fallback = !primary.title || !primary.summary;
+  const text = doc.i18n?.[locale];
   return {
-    title: primary.title || secondary.title || null,
-    summary: primary.summary || secondary.summary || null,
-    note: primary.note || (fallback ? secondary.note : null) || null,
-    fallback,
-    machineTranslated: locale === "en" && !fallback ? !!doc.i18n?.en?.machineTranslated : false,
+    title: text?.title ?? null,
+    summary: text?.summary ?? null,
+    note: text?.note ?? null,
+    machineTranslated: locale === "en" && !!doc.i18n?.en?.machineTranslated,
   };
 }
 
@@ -60,7 +55,6 @@ export function collabCard(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex, 
     slug: doc.slug,
     title: text.title,
     summary: text.summary,
-    fallback: text.fallback,
     phase: phaseOf({ start: doc.period?.start ?? null, until: doc.period?.until ?? null, endKind: doc.period?.endKind ?? "fixed" }, now),
     period: period(doc),
     category: tax.labeled(doc.category, locale),

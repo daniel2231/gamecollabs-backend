@@ -109,15 +109,32 @@ describe("collab workflow", () => {
     expect(patch.status).toBe(403);
   });
 
+  it("requires Korean and English text on every collab, even drafts", async () => {
+    const base = draftBody(e.pubg.id, e.aot.id, { sources: [{ url: "https://example.com/bilingual" }] });
+    const noEn = await as(admin).post("/v1/admin/collabs").send({ ...base, i18n: { ko: base.i18n.ko } });
+    expect(noEn.status).toBe(422);
+    expect(Object.keys(noEn.body.error.fields)).toEqual(expect.arrayContaining(["i18n.en"]));
+    const blankEnSummary = await as(admin).post("/v1/admin/collabs").send({ ...base, i18n: { ko: base.i18n.ko, en: { title: "X", summary: "  " } } });
+    expect(blankEnSummary.body.error.fields["i18n.en.summary"]).toBeTruthy();
+    const oneNote = await as(admin).post("/v1/admin/collabs").send({ ...base, i18n: { ko: { ...base.i18n.ko, note: "메모" }, en: base.i18n.en } });
+    expect(oneNote.body.error.fields["i18n.en.note"]).toBeTruthy();
+    const halfName = await as(admin).post("/v1/admin/collabs").send({ ...base, parties: [{ role: "host", name: { en: "Unknown game" } }] });
+    expect(halfName.status).toBe(422);
+    const property = await as(admin).post("/v1/admin/properties").send({ slug: "en-only", kind: "partner_category.game", name: { en: "English only" } });
+    expect(property.body.error.fields["name.ko"]).toBeTruthy();
+  });
+
   it("refuses to publish incomplete drafts", async () => {
     const { body } = await as(admin)
       .post("/v1/admin/collabs")
-      .send({ i18n: { en: { title: "Something" } }, parties: [{ role: "host", name: { en: "Unknown game" } }], sources: [{ url: "https://example.com/incomplete" }] });
+      .send({
+        i18n: { ko: { title: "미정", summary: "미정" }, en: { title: "TBD", summary: "TBD" } },
+        parties: [{ role: "host", name: { ko: "알 수 없는 게임", en: "Unknown game" } }],
+        sources: [{ url: "https://example.com/incomplete" }],
+      });
     const res = await as(admin).post(`/v1/admin/collabs/${body.data.id}/transition`).send({ action: "publish" });
     expect(res.status).toBe(422);
-    expect(Object.keys(res.body.error.fields)).toEqual(
-      expect.arrayContaining(["i18n.ko.title", "parties", "parties.0.propertyId", "category", "period.start"]),
-    );
+    expect(Object.keys(res.body.error.fields)).toEqual(expect.arrayContaining(["parties", "parties.0.propertyId", "category", "period.start"]));
   });
 
   it("requires a reason to reject", async () => {
@@ -137,7 +154,11 @@ describe("public API", () => {
     published = await createAndPublish(draftBody(e.pubg.id, e.aot.id, { sources: [{ url: "https://example.com/pub1" }] }));
     await createAndPublish(
       draftBody(e.taiko.id, e.jagariko.id, {
-        i18n: { ko: { title: "태고의 달인 × 자가리코", summary: "아케이드판에 CM 곡 리믹스가 추가된다." } },
+        slug: "taiko-no-tatsujin-jagariko-2026-10",
+        i18n: {
+          ko: { title: "태고의 달인 × 자가리코", summary: "아케이드판에 CM 곡 리믹스가 추가된다." },
+          en: { title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song.", machineTranslated: true },
+        },
         category: "category.brand_campaign",
         regions: ["region.japan"],
         platforms: ["platform.arcade"],
@@ -187,12 +208,14 @@ describe("public API", () => {
     expect(second.body.meta.nextCursor).toBeNull();
   });
 
-  it("localizes and falls back to Korean", async () => {
+  it("serves each language from its own text", async () => {
     const ko = await service().get("/v1/collabs/taiko-no-tatsujin-jagariko-2026-10?locale=ko");
     expect(ko.status).toBe(200);
-    expect(ko.body.data).toMatchObject({ title: "태고의 달인 × 자가리코", fallback: false, category: { key: "category.brand_campaign", label: "브랜드 캠페인" } });
+    expect(ko.body.data).toMatchObject({ title: "태고의 달인 × 자가리코", machineTranslated: false, category: { key: "category.brand_campaign", label: "브랜드 캠페인" } });
+    expect(ko.body.data.parties[1].name).toBe("자가리코");
+    expect(ko.body.data.fallback).toBeUndefined();
     const en = await service().get("/v1/collabs/taiko-no-tatsujin-jagariko-2026-10?locale=en");
-    expect(en.body.data).toMatchObject({ title: "태고의 달인 × 자가리코", fallback: true });
+    expect(en.body.data).toMatchObject({ title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song.", machineTranslated: true });
     expect(en.body.data.parties[1].name).toBe("Jagariko");
     expect(en.body.data.companies[0]).toMatchObject({ slug: "krafton", role: "brand_partner" });
     expect(en.body.data.review).toBeUndefined();
@@ -242,7 +265,7 @@ describe("entities", () => {
   });
 
   it("autocompletes and merges entities", async () => {
-    const dup = await as(admin).post("/v1/admin/properties").send({ slug: "shingeki", kind: "partner_category.anime_manga", name: { en: "Shingeki" } });
+    const dup = await as(admin).post("/v1/admin/properties").send({ slug: "shingeki", kind: "partner_category.anime_manga", name: { ko: "싱게키", en: "Shingeki" } });
     expect(dup.status).toBe(201);
     const target = await Property.findById(e.aot.id);
     const hits = await as(editor).get(`/v1/admin/properties?q=${encodeURIComponent("진격의 거인")}`);

@@ -156,7 +156,8 @@ describe("tools", () => {
 
   it("submits candidates to the internal API with the server-side key", async () => {
     const candidate = {
-      title: { en: "PUBG Mobile x Attack on Titan" },
+      title: { ko: "배틀그라운드 모바일 × 진격의 거인", en: "PUBG Mobile x Attack on Titan" },
+      summary: { ko: "콜라보 스킨이 추가된다.", en: "Collab skins are added." },
       game: { name: "PUBG Mobile" },
       partner: { name: "Attack on Titan" },
       period: { start: "2026-11-01" },

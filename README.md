@@ -70,7 +70,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/ingest/:channel` | 수집 채널. `candidates`: 후보 최대 20건 → 건별 `created`/`duplicate`/`rejected` |
 | GET | `/v1/ingest/lookup/entities`, `/v1/ingest/lookup/collabs` | 수집기용 최소 정보 조회 |
 
-오류는 항상 `{ "error": { "code": "validation_failed", "message"?, "fields"? } }` 형식입니다. 응답의 `locale=en`에서 영문이 비면 한국어로 채우고 `fallback: true`를 붙입니다. `phase`는 저장하지 않고 요청 시각 기준으로 계산합니다.
+오류는 항상 `{ "error": { "code": "validation_failed", "message"?, "fields"? } }` 형식입니다. `locale=ko|en`이면 그 언어의 텍스트를 그대로 내려줍니다 (다른 언어로 대체하지 않음). `phase`는 저장하지 않고 요청 시각 기준으로 계산합니다.
 
 발행·수정이 일어나면 `WEB_REVALIDATE_URL`로 `{ "tags": ["collabs", "collab:<slug>", "property:<slug>", "company:<slug>"] }`를 보냅니다.
 
@@ -81,6 +81,8 @@ PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP �
 - 저장 전 훅이 `facetKeys`(입력 키 + 모든 상위 키 + partner 역할의 kind), `searchTokens`(한글 2-gram, 영문 단어·접두어), `rev`를 계산합니다. 분류 키는 `taxonomy_terms`에 있는 키만 허용합니다.
 - 검색은 `SearchProvider` 인터페이스 뒤의 자체 토큰 인덱스입니다. Atlas Search로 바꿀 때 구현체만 교체합니다.
 - PATCH·전이·병합은 모두 트랜잭션 안에서 `revisions`에 diff를 남깁니다.
+
+**한국어·영어 필수**: 콜라보의 제목·요약(`i18n.ko`, `i18n.en`), 작품·회사 이름(`name.ko`, `name.en`), 연결 전 참여자 이름, 커버 대체 텍스트(넣을 경우)는 초안 단계부터 두 언어가 모두 있어야 저장됩니다. 메모는 두 언어 모두 있거나 둘 다 없어야 합니다. 콜라보 텍스트와 엔티티 이름은 Zod 스키마와 Mongoose 모델 양쪽에서 검사하고, 발행할 때 한 번 더 확인합니다. 원어 이름(`name.original`)만 선택입니다. 수집 후보도 제목·요약을 두 언어로 보내야 하며, 한쪽이 없으면 `rejected`입니다.
 
 PRD에서 조금 바꾸거나 보탠 부분:
 
@@ -134,7 +136,8 @@ pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../blog/content/collab-trac
 
 - slug 기준 upsert라 몇 번이고 다시 실행할 수 있습니다. 미판정 값이 남아 있거나 대조 리포트에 누락이 있으면 종료 코드 1입니다 (M0/M1 게이트).
 - `active`/`ongoing`/`upcoming` → `published`, `source_url` → `sources[0]`(primary), 종료일이 없는 항목은 `endKind: "tba"`, `tags`는 `origin.notes`에 남깁니다.
-- frontmatter 필드명은 PRD 기준(`game_title`, `ip_title`, `summary_ko`, `source_url`, `start_date` …)으로 가정했습니다. 다르면 `--fields fields.json`으로 바꿉니다 (`apps/api/src/cli/migrate.ts`의 `DEFAULT_FIELDS`).
+- 모든 항목은 한국어·영어를 다 갖춰야 합니다. 필요한 필드: `title`/`title_en`(둘 다 없으면 작품명으로 만듦), `summary_ko`/`summary_en`, `game_title`/`game_title_ko`, `ip_title`/`ip_title_ko`, `companies`/`companies_ko`(같은 순서). 하나라도 빠지면 `problems`에 나오고 이관이 중단됩니다.
+- 그 밖의 필드명은 PRD 기준(`source_url`, `start_date` …)으로 가정했습니다. 다르면 `--fields fields.json`으로 바꿉니다 (`apps/api/src/cli/migrate.ts`의 `DEFAULT_FIELDS`).
 
 ## 배포 (홈서버)
 
