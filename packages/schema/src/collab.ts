@@ -131,7 +131,7 @@ export type TransitionInput = z.infer<typeof TransitionInput>;
 
 export const SORTS = ["start_desc", "start_asc"] as const;
 
-/** Query of `GET /v1/collabs` and `GET /v1/collabs/export.csv`. */
+/** Query of `GET /v1/collabs`. */
 export const CollabListQuery = z.object({
   q: z.string().trim().max(100).optional(),
   category: CsvList.pipe(z.array(keyOf("category"))).optional(),

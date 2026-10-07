@@ -210,13 +210,7 @@ describe("public API", () => {
     expect((await service().get("/v1/properties/nope")).status).toBe(404);
   });
 
-  it("exports CSV and stats", async () => {
-    const csv = await service().get("/v1/collabs/export.csv?locale=en&region=region.japan");
-    expect(csv.status).toBe(200);
-    expect(csv.headers["content-type"]).toMatch(/text\/csv/);
-    const lines = csv.text.replace(/^﻿/, "").trim().split("\n");
-    expect(lines).toHaveLength(3);
-    expect(lines[0]).toMatch(/^slug,title,phase/);
+  it("returns stats", async () => {
     const stats = await service().get("/v1/stats?locale=en");
     expect(stats.body.data.total).toBe(2);
     expect(stats.body.data.monthly).toEqual([

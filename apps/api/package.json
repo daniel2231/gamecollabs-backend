@@ -19,7 +19,6 @@
     "@aws-sdk/client-s3": "^3.1146.0",
     "@gamecollabs/schema": "workspace:*",
     "cors": "^2.8.6",
-    "csv-stringify": "^6.9.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.1",
     "gray-matter": "^4.0.3",

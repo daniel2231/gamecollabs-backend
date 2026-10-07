@@ -52,7 +52,6 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
 | GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`, `cursor`, `limit`(≤100) |
-| GET | `/v1/collabs/export.csv` | 같은 필터의 CSV (UTF-8 BOM, 최대 1만 건) |
 | GET | `/v1/collabs/:slug` | 상세 + 관련 콜라보 |
 | GET | `/v1/properties/:slug`, `/v1/companies/:slug` | 엔티티 + 타임라인, 파트너 목록. 이전 slug로도 조회되며 응답의 `slug`가 정식 주소 |
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
