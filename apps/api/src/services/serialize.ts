@@ -20,7 +20,6 @@ function localizedText(doc: LeanCollab, locale: Locale) {
     title: text?.title ?? null,
     summary: text?.summary ?? null,
     note: text?.note ?? null,
-    machineTranslated: locale === "en" && !!doc.i18n?.en?.machineTranslated,
   };
 }
 
@@ -78,7 +77,6 @@ export function collabDetail(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex
   return {
     ...collabCard(doc, locale, tax, now),
     note: text.note,
-    machineTranslated: text.machineTranslated,
     companies: doc.companies.map((c) => ({
       id: c.companyId.toString(),
       slug: c.slug ?? null,

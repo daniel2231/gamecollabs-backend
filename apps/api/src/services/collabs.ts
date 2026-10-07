@@ -81,12 +81,7 @@ async function resolveCompanies(companies: CollabInput["companies"], session?: C
 function i18nOf(input: CollabInput["i18n"]) {
   return {
     ko: { title: input.ko.title, summary: input.ko.summary, note: input.ko.note ?? null },
-    en: {
-      title: input.en.title,
-      summary: input.en.summary,
-      note: input.en.note ?? null,
-      machineTranslated: !!input.en.machineTranslated,
-    },
+    en: { title: input.en.title, summary: input.en.summary, note: input.en.note ?? null },
   };
 }
 

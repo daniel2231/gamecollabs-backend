@@ -157,7 +157,7 @@ describe("public API", () => {
         slug: "taiko-no-tatsujin-jagariko-2026-10",
         i18n: {
           ko: { title: "태고의 달인 × 자가리코", summary: "아케이드판에 CM 곡 리믹스가 추가된다." },
-          en: { title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song.", machineTranslated: true },
+          en: { title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song." },
         },
         category: "category.brand_campaign",
         regions: ["region.japan"],
@@ -211,11 +211,12 @@ describe("public API", () => {
   it("serves each language from its own text", async () => {
     const ko = await service().get("/v1/collabs/taiko-no-tatsujin-jagariko-2026-10?locale=ko");
     expect(ko.status).toBe(200);
-    expect(ko.body.data).toMatchObject({ title: "태고의 달인 × 자가리코", machineTranslated: false, category: { key: "category.brand_campaign", label: "브랜드 캠페인" } });
+    expect(ko.body.data).toMatchObject({ title: "태고의 달인 × 자가리코", category: { key: "category.brand_campaign", label: "브랜드 캠페인" } });
     expect(ko.body.data.parties[1].name).toBe("자가리코");
     expect(ko.body.data.fallback).toBeUndefined();
     const en = await service().get("/v1/collabs/taiko-no-tatsujin-jagariko-2026-10?locale=en");
-    expect(en.body.data).toMatchObject({ title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song.", machineTranslated: true });
+    expect(en.body.data).toMatchObject({ title: "Taiko no Tatsujin x Jagariko", summary: "The arcade version adds a remix of the commercial song." });
+    expect(en.body.data.machineTranslated).toBeUndefined();
     expect(en.body.data.parties[1].name).toBe("Jagariko");
     expect(en.body.data.companies[0]).toMatchObject({ slug: "krafton", role: "brand_partner" });
     expect(en.body.data.review).toBeUndefined();

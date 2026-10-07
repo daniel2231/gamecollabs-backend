@@ -45,7 +45,7 @@ export const CollabLocaleText = z.object({
 export const CollabI18n = z
   .object({
     ko: CollabLocaleText,
-    en: CollabLocaleText.extend({ machineTranslated: z.boolean().optional() }),
+    en: CollabLocaleText,
   })
   .refine((t) => !t.ko.note === !t.en.note, { message: "note must be given in both languages or neither", path: ["en", "note"] });
 

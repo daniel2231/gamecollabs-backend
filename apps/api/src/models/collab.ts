@@ -17,10 +17,6 @@ const str = { type: String, default: null };
 /** Title and summary are required in both languages; the note is optional. */
 const requiredText = { type: String, required: true, trim: true };
 const localeText = new Schema({ title: requiredText, summary: requiredText, note: str }, { _id: false });
-const enText = new Schema(
-  { title: requiredText, summary: requiredText, note: str, machineTranslated: { type: Boolean, default: false } },
-  { _id: false },
-);
 const snapshotName = new Schema({ ko: str, en: str }, { _id: false });
 
 const partySchema = new Schema(
@@ -79,7 +75,7 @@ const collabSchema = new Schema(
     status: { type: String, enum: COLLAB_STATUSES, default: "draft", required: true },
     i18n: {
       ko: { type: localeText, required: true },
-      en: { type: enText, required: true },
+      en: { type: localeText, required: true },
     },
     parties: { type: [partySchema], default: [] },
     companies: { type: [companyRefSchema], default: [] },

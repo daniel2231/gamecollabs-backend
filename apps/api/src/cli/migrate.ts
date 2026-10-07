@@ -218,7 +218,7 @@ export async function migrateMdx(opts: MigrateOptions) {
       status,
       i18n: {
         ko: { title, summary: str(d[f.summaryKo])!, note: null },
-        en: { title: titleEn, summary: str(d[f.summaryEn])!, note: null, machineTranslated: false },
+        en: { title: titleEn, summary: str(d[f.summaryEn])!, note: null },
       },
       parties: [
         { propertyId: game!._id, slug: game!.slug, role: "host", kind: game!.kind, name: snapshotName(game!.name) },
