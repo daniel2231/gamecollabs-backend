@@ -22,11 +22,18 @@ export const IngestCandidate = z.object({
     regions: z.array(TaxonomyValue).max(20).default([]),
     platforms: z.array(TaxonomyValue).max(20).default([]),
     collabTypes: z.array(TaxonomyValue).max(20).default([]),
-    period: z.object({
-      start: IsoDateOrMonth,
-      end: IsoDateOrMonth.nullish(),
-      endKind: EndKind.default("fixed"),
-    }),
+    /**
+     * Leave `start` out when the start date has not been announced: the
+     * candidate is stored as a draft and cannot be published until a date is set.
+     */
+    period: z
+      .object({
+        start: IsoDateOrMonth.nullish(),
+        end: IsoDateOrMonth.nullish(),
+        endKind: EndKind.default("tba"),
+      })
+      .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
+      .default({ endKind: "tba" }),
     sources: z
       .array(
         z.object({

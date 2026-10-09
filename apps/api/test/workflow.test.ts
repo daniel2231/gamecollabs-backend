@@ -91,6 +91,20 @@ describe("ingest", () => {
     expect(res.body.data.results[0].reasons[0].code).toBe("invalid");
   });
 
+  it("accepts candidates without an announced start date as drafts and dedupes them", async () => {
+    const undated = (url: string) => candidate({ period: undefined, sources: [{ url }] });
+    const first = await as(ingest).post("/v1/ingest/candidates").send({ client: "chatgpt-mcp", candidates: [undated("https://news.example.com/undated-1")] });
+    const [r] = first.body.data.results;
+    expect(r.status).toBe("created");
+    expect(r.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/start date not announced/)]));
+    const doc = await Collab.findById(r.id).lean();
+    expect(doc).toMatchObject({ status: "draft", period: { start: null, endKind: "tba" } });
+
+    // Same game and partner, still undated, reported by another article: not a second draft.
+    const again = await as(ingest).post("/v1/ingest/candidates").send({ client: "chatgpt-mcp", candidates: [undated("https://other.example.com/undated-2")] });
+    expect(again.body.data.results[0]).toMatchObject({ status: "duplicate", reasons: [{ code: "same_parties_and_date" }] });
+  });
+
   it("rejects candidates missing either language", async () => {
     const res = await as(ingest)
       .post("/v1/ingest/candidates")

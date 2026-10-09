@@ -179,7 +179,8 @@ const DUPLICATE_WINDOW_MS = 14 * 86_400_000;
 
 /**
  * Same source URL, or the same host and partner property with a start date
- * within ±14 days. Checks every status, including drafts.
+ * within ±14 days (or both without a start date). Checks every status,
+ * including drafts.
  */
 export async function findDuplicates(
   c: { sourceUrls: string[]; hostIds: Types.ObjectId[]; partnerIds: Types.ObjectId[]; start: Date | null; excludeId?: Types.ObjectId },
@@ -187,17 +188,19 @@ export async function findDuplicates(
 ) {
   const or: Record<string, unknown>[] = [];
   if (c.sourceUrls.length) or.push({ "sources.url": { $in: c.sourceUrls } });
-  if (c.hostIds.length && c.partnerIds.length && c.start) {
+  if (c.hostIds.length && c.partnerIds.length) {
     or.push({
       $and: [
         { parties: { $elemMatch: { role: "host", propertyId: { $in: c.hostIds } } } },
         { parties: { $elemMatch: { role: "partner", propertyId: { $in: c.partnerIds } } } },
-        {
-          "period.start": {
-            $gte: new Date(c.start.getTime() - DUPLICATE_WINDOW_MS),
-            $lte: new Date(c.start.getTime() + DUPLICATE_WINDOW_MS),
-          },
-        },
+        c.start
+          ? {
+              "period.start": {
+                $gte: new Date(c.start.getTime() - DUPLICATE_WINDOW_MS),
+                $lte: new Date(c.start.getTime() + DUPLICATE_WINDOW_MS),
+              },
+            }
+          : { "period.start": null },
       ],
     });
   }

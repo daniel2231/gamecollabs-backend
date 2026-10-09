@@ -88,12 +88,13 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
   if (!partner) warnings.push(`partner "${c.partner.name}" is not linked to a property yet`);
 
   // 3. Duplicates (server decides; the client's own check is not trusted).
-  let start: Date;
+  let start: Date | null = null;
   try {
-    start = parseDateInput(c.period.start);
+    if (c.period.start) start = parseDateInput(c.period.start);
   } catch {
     return { index, status: "rejected", reasons: [reason("invalid", "period.start: invalid date")] };
   }
+  if (!start) warnings.push("start date not announced; the draft cannot be published until it is set");
   const dupes = await findDuplicates({
     sourceUrls,
     hostIds: game ? [game._id] : [],
@@ -155,7 +156,7 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
     regions,
     platforms,
     collabTypes,
-    period: { start: c.period.start, end: c.period.end ?? null, endKind: c.period.endKind },
+    period: { start: c.period.start ?? null, end: c.period.end ?? null, endKind: c.period.end ? "fixed" : c.period.endKind },
     sources: sourceUrls.map((url, i) => {
       const s = bySourceUrl.get(url);
       return { url, title: s?.title ?? null, publisher: s?.publisher ?? null, type: s?.type ?? "press", isPrimary: i === 0, accessedAt: today };

@@ -23,6 +23,8 @@ Today is {{TODAY}}.
 - Only state what the source states. If a date is not announced, omit it rather than guess;
   use `YYYY-MM` when only the month is known and `endKind: "tba"` when the end is undecided,
   `"permanent"` when the content stays.
+- A newly announced collab without a start date is still worth submitting: leave
+  `period.start` out and it is kept as a draft until the date is known.
 - Korean and English are both required for `title` and `summary`; a candidate missing either is rejected.
 - `title`: "<게임> × <파트너>" in Korean and "<Game> x <Partner>" in English, using the official
   Korean and English names (check `find_entity` first).

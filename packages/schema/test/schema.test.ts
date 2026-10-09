@@ -44,6 +44,10 @@ describe("shared schemas", () => {
     expect(IngestCandidate.safeParse({ ...base, summary, title: { en: "G x P" } }).success).toBe(false);
     expect(IngestCandidate.safeParse({ ...base, summary: { ko: "요약" }, title: { ko: "G × P", en: "G x P" } }).success).toBe(false);
     expect(IngestCandidate.safeParse({ ...base, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(true);
+    // An unannounced start date is allowed; an end date without a start is not.
+    const { period: _p, ...undated } = base;
+    expect(IngestCandidate.safeParse({ ...undated, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(true);
+    expect(IngestCandidate.safeParse({ ...undated, period: { end: "2026-12-31" }, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(false);
   });
 
   it("requires a reason to reject", () => {
