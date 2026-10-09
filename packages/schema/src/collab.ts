@@ -134,7 +134,8 @@ export const TransitionInput = z
   .refine((t) => t.action !== "reject" || !!t.reason, { message: "reject requires a reason", path: ["reason"] });
 export type TransitionInput = z.infer<typeof TransitionInput>;
 
-export const SORTS = ["start_desc", "start_asc"] as const;
+/** `recent` orders by first publication (newest first), for feeds. */
+export const SORTS = ["start_desc", "start_asc", "recent"] as const;
 
 /** Query of `GET /v1/collabs`. */
 export const CollabListQuery = z.object({

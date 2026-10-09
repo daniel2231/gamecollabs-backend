@@ -39,6 +39,7 @@ function cover(doc: LeanCollab, locale: Locale) {
   if (!c || !(c.storageKey || c.originalUrl)) return null;
   return {
     url: mediaUrl(c.storageKey) ?? c.originalUrl,
+    originalUrl: c.originalUrl ?? null,
     credit: c.credit ?? null,
     alt: pick(c.alt, locale),
     width: c.width ?? null,
@@ -68,6 +69,7 @@ export function collabCard(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex, 
     platforms: doc.platforms.map((k) => tax.labeled(k, locale)!),
     collabTypes: doc.collabTypes.map((k) => tax.labeled(k, locale)!),
     cover: cover(doc, locale),
+    publishedAt: doc.review?.publishedAt?.toISOString() ?? null,
   };
 }
 
@@ -92,7 +94,6 @@ export function collabDetail(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex
       accessedAt: formatDate(s.accessedAt),
       lastCheckedAt: s.lastCheckedAt?.toISOString() ?? null,
     })),
-    publishedAt: doc.review?.publishedAt?.toISOString() ?? null,
     updatedAt: doc.updatedAt?.toISOString() ?? null,
   };
 }

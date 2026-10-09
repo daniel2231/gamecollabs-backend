@@ -124,6 +124,7 @@ const collabSchema = new Schema(
 
 collabSchema.index({ slug: 1 }, { unique: true });
 collabSchema.index({ status: 1, "period.start": -1, _id: -1 });
+collabSchema.index({ status: 1, "review.publishedAt": -1, _id: -1 });
 collabSchema.index({ facetKeys: 1, "period.start": -1 });
 collabSchema.index({ "parties.propertyId": 1, "period.start": -1 });
 collabSchema.index({ "companies.companyId": 1 });

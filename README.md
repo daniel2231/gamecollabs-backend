@@ -1,6 +1,6 @@
 # gamecollabs-backend
 
-콜라보 트래커 독립 서비스의 백엔드입니다. PRD(「콜라보 트래커 독립 서비스 PRD」)의 Express API, MCP 수집 서버, 공유 Zod 스키마, 홈서버 배포 설정을 담고 있습니다. Next.js 프론트엔드(`apps/web`)는 이 저장소에 없습니다.
+콜라보 트래커 독립 서비스의 백엔드입니다. PRD(「콜라보 트래커 독립 서비스 PRD」)의 Express API, MCP 수집 서버, 공유 Zod 스키마, 홈서버 배포 설정을 담고 있습니다. Next.js 프론트엔드는 별도 저장소(`daniel2231/gamecollabs-frontend`, Vercel 배포)에 있습니다.
 
 ```text
 packages/schema   공유 Zod 스키마: API 입력, 관리자 폼, 수집 후보, 쿼리
@@ -49,18 +49,19 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`, `cursor`, `limit`(≤100) |
+| GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`(`start_desc`, `start_asc`, `recent`=발행일순), `cursor`, `limit`(≤100) |
 | GET | `/v1/collabs/:slug` | 상세 + 관련 콜라보 |
 | GET | `/v1/properties/:slug`, `/v1/companies/:slug` | 엔티티 + 타임라인, 파트너 목록. 이전 slug로도 조회되며 응답의 `slug`가 정식 주소 |
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
-| GET | `/v1/stats` | 월별 건수, 분류별 분포 |
+| GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 월별 건수, 분류별 분포 |
+| GET | `/v1/sitemap` | 발행된 콜라보 slug·updatedAt과 그 콜라보에 나오는 작품·회사 slug |
 | POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증) |
-| GET/POST | `/v1/admin/collabs` | 내부 목록 / 초안 생성 (항상 `draft`, 중복 후보 반환) |
+| GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
 | GET | `/v1/admin/collabs/:id/revisions`, `…/duplicates` | 변경 이력, 중복 후보 |
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
-| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신) |
+| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신) |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만) |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
 | GET/POST/PATCH | `/v1/admin/taxonomies` | 분류값 관리 (추가·수정은 관리자만) |

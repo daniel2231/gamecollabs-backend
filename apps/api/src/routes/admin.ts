@@ -22,15 +22,18 @@ import { IngestRun, Submission } from "../models/support.js";
 import {
   createDraft,
   duplicatesOf,
+  duplicateCounts,
   getById,
   listAdmin,
   patchCollab,
   revisions,
+  statusCounts,
   transition,
 } from "../services/collabs.js";
 import {
   createCompany,
   createProperty,
+  listEntities,
   mergeEntities,
   searchEntities,
   updateEntity,
@@ -58,7 +61,11 @@ function ifMatch(req: Request): number | null {
 
 adminRouter.get("/collabs", requireScope("collabs:read_internal"), async (req, res) => {
   const page = await listAdmin(parse(AdminCollabListQuery, req.query));
-  res.json({ data: page.items.map((d) => collabAdmin(d)), meta: { nextCursor: page.nextCursor } });
+  const [counts, duplicates] = await Promise.all([statusCounts(), duplicateCounts(page.items)]);
+  res.json({
+    data: page.items.map((d, i) => ({ ...collabAdmin(d), duplicateCount: duplicates[i] })),
+    meta: { nextCursor: page.nextCursor, counts },
+  });
 });
 
 /** Creates a draft (always `draft`) and returns possible duplicates. */
@@ -105,7 +112,7 @@ function entityRoutes(type: EntityType, path: string, input: z.ZodType, patch: z
     const q = parse(EntitySearchQuery, req.query);
     const { locale } = parse(AdminLocale, req.query);
     const tax = await taxonomy();
-    const hits = await searchEntities(type, q.q, q.limit);
+    const hits = q.q ? await searchEntities(type, q.q, q.limit ?? 10) : await listEntities(type, q.limit ?? 1000);
     res.json({ data: hits.map((h) => ({ ...entitySummary(h.doc, locale, tax), exact: h.exact })) });
   });
   adminRouter.post(`/${path}`, requireScope("entities:write"), async (req, res) => {

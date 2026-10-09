@@ -171,6 +171,12 @@ export async function searchEntities(type: EntityType, q: string, limit = 10) {
   return [...exact.map((e) => ({ doc: e, exact: true })), ...fuzzy.map((e) => ({ doc: e, exact: false }))];
 }
 
+/** Every entity of a type, most used first (admin list without a query). */
+export async function listEntities(type: EntityType, limit = 1000) {
+  const docs = await modelOf(type).find().sort({ collabCount: -1, slug: 1 }).limit(limit).lean();
+  return docs.map((doc) => ({ doc, exact: false }));
+}
+
 /** Lookup by slug or a former slug (callers redirect when `slug` differs from the request). */
 export async function findBySlug(type: EntityType, slug: string) {
   const doc = await modelOf(type).findOne({ $or: [{ slug }, { formerSlugs: slug }] }).lean();

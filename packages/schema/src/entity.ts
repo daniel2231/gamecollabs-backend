@@ -35,7 +35,8 @@ export type CompanyPatch = z.infer<typeof CompanyPatch>;
 /** `POST /v1/admin/{properties|companies}/:id/merge`: `from` is absorbed into `:id`. */
 export const MergeInput = z.object({ from: ObjectIdString });
 
+/** Without `q` the whole list is returned (admin entity manager), most used first. */
 export const EntitySearchQuery = z.object({
-  q: z.string().trim().min(1).max(100),
-  limit: z.coerce.number().int().min(1).max(50).default(10),
+  q: z.string().trim().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
 });

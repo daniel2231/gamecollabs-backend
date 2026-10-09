@@ -8,6 +8,8 @@ import { getPublishedBySlug, listPublic, publicFilter, related } from "../servic
 import { entitySummary, collabCard, collabDetail, pick } from "../services/serialize.js";
 import { entityTimeline, findBySlug, type EntityType } from "../services/entities.js";
 import { stats } from "../services/stats.js";
+import { Collab } from "../models/collab.js";
+import { Company, Property } from "../models/entities.js";
 import { taxonomy, taxonomyTree } from "../services/taxonomy.js";
 
 const LocaleQuery = z.object({ locale: Locale.default("ko") });
@@ -45,7 +47,11 @@ async function entityPage(type: EntityType, slug: string, locale: LocaleT) {
       latestStart: formatDate(timeline.latestStart),
     },
     partners: timeline.partners.map((p) => ({ id: p.id, slug: p.slug, name: pick(p.name, locale), kind: tax.labeled(p.kind, locale), count: p.count })),
-    collabs: timeline.collabs.map((c) => collabCard(c, locale, tax, now)),
+    collabs: timeline.collabs.map((c) => ({
+      ...collabCard(c, locale, tax, now),
+      // Role of this company in the collab (company pages only).
+      ...(type === "company" ? { companyRole: c.companies.find((x) => x.companyId.equals(entity._id))?.role ?? "unspecified" } : {}),
+    })),
   };
 }
 
@@ -57,6 +63,26 @@ publicRouter.get("/properties/:slug", async (req, res) => {
 publicRouter.get("/companies/:slug", async (req, res) => {
   const { locale } = parse(LocaleQuery, req.query);
   res.json({ data: await entityPage("company", String(req.params.slug), locale) });
+});
+
+/** Published collabs and the entities that appear in them, for the web sitemap. */
+publicRouter.get("/sitemap", async (_req, res) => {
+  const [collabs, propertyIds, companyIds] = await Promise.all([
+    Collab.find({ status: "published" }).select({ slug: 1, updatedAt: 1 }).sort({ updatedAt: -1 }).lean(),
+    Collab.distinct("parties.propertyId", { status: "published" }),
+    Collab.distinct("companies.companyId", { status: "published" }),
+  ]);
+  const [properties, companies] = await Promise.all([
+    Property.find({ _id: { $in: propertyIds } }).select({ slug: 1 }).sort({ slug: 1 }).lean(),
+    Company.find({ _id: { $in: companyIds } }).select({ slug: 1 }).sort({ slug: 1 }).lean(),
+  ]);
+  res.json({
+    data: {
+      collabs: collabs.map((c) => ({ slug: c.slug, updatedAt: c.updatedAt?.toISOString() ?? null })),
+      properties: properties.map((p) => ({ slug: p.slug })),
+      companies: companies.map((c) => ({ slug: c.slug })),
+    },
+  });
 });
 
 publicRouter.get("/taxonomies", async (req, res) => {

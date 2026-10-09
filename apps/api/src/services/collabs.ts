@@ -1,4 +1,5 @@
 import { Types, type ClientSession } from "mongoose";
+import { COLLAB_STATUSES, type CollabStatus } from "@gamecollabs/schema";
 import type {
   AdminCollabListQuery,
   CollabInput,
@@ -219,7 +220,7 @@ export async function findDuplicates(
   }));
 }
 
-function duplicateQueryFor(doc: CollabDoc) {
+function duplicateQueryFor(doc: Pick<CollabFields, "sources" | "parties" | "period"> & { _id: Types.ObjectId }) {
   return {
     sourceUrls: doc.sources.map((s) => s.url),
     hostIds: doc.parties.filter((p) => p.role === "host" && p.propertyId).map((p) => p.propertyId!),
@@ -434,10 +435,11 @@ export async function listPublic(q: CollabListQuery, now = new Date()) {
   if (q.from && q.to && q.from > q.to) throw badRequest("invalid_range", "from is after to");
   const filter = await publicFilter(q, now);
   const dir = q.sort === "start_asc" ? 1 : -1;
-  const page = q.cursor ? { $and: [filter, afterCursor("period.start", dir, decodeCursor(q.cursor))] } : filter;
+  const field = q.sort === "recent" ? "review.publishedAt" : "period.start";
+  const page = q.cursor ? { $and: [filter, afterCursor(field, dir, decodeCursor(q.cursor))] } : filter;
   const [items, total] = await Promise.all([
     Collab.find(page)
-      .sort({ "period.start": dir, _id: dir })
+      .sort({ [field]: dir, _id: dir })
       .limit(q.limit + 1)
       .lean(),
     Collab.countDocuments(filter),
@@ -445,7 +447,8 @@ export async function listPublic(q: CollabListQuery, now = new Date()) {
   const hasMore = items.length > q.limit;
   const pageItems = items.slice(0, q.limit);
   const last = pageItems.at(-1);
-  return { items: pageItems, total, nextCursor: hasMore && last ? encodeCursor(last.period?.start ?? null, last._id) : null };
+  const lastValue = q.sort === "recent" ? last?.review?.publishedAt : last?.period?.start;
+  return { items: pageItems, total, nextCursor: hasMore && last ? encodeCursor(lastValue ?? null, last._id) : null };
 }
 
 export async function listAdmin(q: AdminCollabListQuery) {
@@ -486,6 +489,21 @@ export async function related(doc: Pick<CollabFields, "parties"> & { _id: Types.
 export async function revisions(id: string) {
   const doc = await getById(id);
   return Revision.find({ collabId: doc._id }).sort({ rev: -1, createdAt: -1 }).limit(200).lean();
+}
+
+/** Number of collabs in each status (admin queue tabs). */
+export async function statusCounts() {
+  const rows = await Collab.aggregate<{ _id: CollabStatus; n: number }>([{ $group: { _id: "$status", n: { $sum: 1 } } }]);
+  return Object.fromEntries(COLLAB_STATUSES.map((s) => [s, rows.find((r) => r._id === s)?.n ?? 0])) as Record<CollabStatus, number>;
+}
+
+/** Duplicate candidates per collab, checked only for collabs still under review (0 otherwise). */
+export async function duplicateCounts(docs: (Pick<CollabFields, "status" | "sources" | "parties" | "period"> & { _id: Types.ObjectId })[]) {
+  return Promise.all(
+    docs.map(async (d) =>
+      d.status === "draft" || d.status === "in_review" ? (await findDuplicates(duplicateQueryFor(d))).length : 0,
+    ),
+  );
 }
 
 export async function duplicatesOf(id: string) {

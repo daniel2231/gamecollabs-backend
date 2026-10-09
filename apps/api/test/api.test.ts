@@ -246,6 +246,42 @@ describe("public API", () => {
     );
   });
 
+  it("counts collabs by phase in stats", async () => {
+    const stats = await service().get("/v1/stats");
+    const byPhase = stats.body.data.byPhase;
+    expect(Object.keys(byPhase).sort()).toEqual(["ended", "ongoing", "unknown", "upcoming"]);
+    expect(byPhase.upcoming + byPhase.ongoing + byPhase.ended + byPhase.unknown).toBe(2);
+  });
+
+  it("sorts by publication for feeds and exposes publishedAt on cards", async () => {
+    const res = await service().get("/v1/collabs?sort=recent&limit=1");
+    expect(res.body.data[0].slug).toBe("taiko-no-tatsujin-jagariko-2026-10");
+    expect(res.body.data[0].publishedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const next = await service().get(`/v1/collabs?sort=recent&limit=1&cursor=${res.body.meta.nextCursor}`);
+    expect(next.body.data[0].slug).toBe(published.slug);
+  });
+
+  it("gives each collab's role on company pages", async () => {
+    const res = await service().get("/v1/companies/krafton");
+    expect(res.body.data.collabs[0].companyRole).toBe("brand_partner");
+    expect((await service().get("/v1/properties/attack-on-titan")).body.data.collabs[0].companyRole).toBeUndefined();
+  });
+
+  it("lists published collabs and their entities for the sitemap", async () => {
+    const res = await service().get("/v1/sitemap");
+    expect(res.status).toBe(200);
+    expect(res.body.data.collabs.map((c: { slug: string }) => c.slug).sort()).toEqual([published.slug, "taiko-no-tatsujin-jagariko-2026-10"].sort());
+    expect(res.body.data.properties.map((p: { slug: string }) => p.slug)).toEqual(expect.arrayContaining(["attack-on-titan", "pubg-mobile"]));
+    expect(res.body.data.properties.map((p: { slug: string }) => p.slug)).not.toContain("blood-strike");
+    expect(res.body.data.companies).toEqual([{ slug: "krafton" }]);
+  });
+
+  it("gives the admin queue status counts and duplicate flags", async () => {
+    const res = await as(admin).get("/v1/admin/collabs?status=draft,in_review");
+    expect(res.body.meta.counts).toMatchObject({ published: 2, draft: 1, in_review: 0, archived: 0 });
+    expect(res.body.data[0].duplicateCount).toBe(0);
+  });
+
   it("returns the taxonomy tree", async () => {
     const res = await service().get("/v1/taxonomies?locale=en");
     const mobile = res.body.data.platform.find((t: { key: string }) => t.key === "platform.mobile");
@@ -281,6 +317,12 @@ describe("entities", () => {
     const after = await Collab.findById(draft.body.data.id).lean();
     expect(after!.parties[1]!.propertyId!.toString()).toBe(target!.id);
     expect(await Property.exists({ _id: dup.body.data._id })).toBeNull();
+  });
+
+  it("lists every entity when no query is given", async () => {
+    const res = await as(editor).get("/v1/admin/companies");
+    expect(res.status).toBe(200);
+    expect(res.body.data.map((c: { slug: string }) => c.slug)).toContain("krafton");
   });
 
   it("matches names for agents", async () => {
