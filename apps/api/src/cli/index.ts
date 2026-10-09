@@ -22,6 +22,7 @@ Commands:
   revoke-token --name <name>
   migrate-mdx --dir <content/collab-tracker> [--dry-run] [--allow-unmapped]
               [--fields fields.json] [--mapping mapping.json] [--entity-map entities.json] [--report report.json]
+              [--image-base-url https://<old blog domain>]
   job <name>                           Run a periodic job now (${Object.keys(JOBS).join(", ")})
 `;
 
@@ -46,6 +47,7 @@ async function main() {
       mapping: { type: "string" },
       "entity-map": { type: "string" },
       report: { type: "string" },
+      "image-base-url": { type: "string" },
     },
   });
   if (!command || command === "help") {
@@ -99,6 +101,7 @@ async function main() {
           mapping: await readJson(values.mapping),
           entityMap: await readJson(values["entity-map"]),
           reportPath: values.report,
+          imageBaseUrl: values["image-base-url"],
         });
         console.log(JSON.stringify(result, null, 2));
         const missing = (result.reconciliation as { missing?: string[] } | null)?.missing?.length ?? 0;

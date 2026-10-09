@@ -64,6 +64,12 @@ export type MigrateOptions = {
   mapping?: ValueMapping;
   entityMap?: EntityMapping;
   reportPath?: string;
+  /**
+   * Origin of the old blog (`https://blog.example.com`). MVP images uploaded
+   * through Decap CMS are stored as site paths (`/blog/uploads/x.jpg`) and are
+   * resolved against it so the cover mirror job can download them.
+   */
+  imageBaseUrl?: string;
 };
 
 type Item = { file: string; data: Record<string, unknown> };
@@ -123,6 +129,13 @@ export async function migrateMdx(opts: MigrateOptions) {
   const unmapped = new Map<string, number>();
   const map = mapper(tax, opts.mapping ?? {}, unmapped);
   const canonical = (name: string) => opts.entityMap?.[name] ?? name;
+  /** Absolute image URL, or `{ error }` for a site path when no base URL was given. */
+  const imageUrl = (raw: string | null): { url: string | null } | { error: string } => {
+    if (!raw) return { url: null };
+    if (/^https?:\/\//i.test(raw)) return { url: raw };
+    if (!opts.imageBaseUrl) return { error: `image "${raw}" is a path on the old blog; pass --image-base-url https://<blog domain>` };
+    return { url: new URL(raw, opts.imageBaseUrl).toString() };
+  };
 
   // Pass 1: classification + entity candidates, without writing.
   // Every title, summary and name must exist in Korean and English; anything missing is a problem.
@@ -160,6 +173,8 @@ export async function migrateMdx(opts: MigrateOptions) {
     if (!ipEn) missing(f.ip);
     if (!ipKo) missing(f.ipKo);
     if (companiesEn.length !== companiesKo.length) problems.push(`${item.file}: ${f.companies} and ${f.companiesKo} must list the same companies`);
+    const image = imageUrl(str(d[f.image]));
+    if ("error" in image) problems.push(`${item.file}: ${image.error}`);
     if (!str(d[f.summaryKo])) missing(f.summaryKo);
     if (!str(d[f.summaryEn])) missing(f.summaryEn);
     if (!str(d[f.title]) !== !str(d[f.titleEn])) missing(str(d[f.title]) ? f.titleEn : f.title);
@@ -269,7 +284,7 @@ export async function migrateMdx(opts: MigrateOptions) {
       // The MVP cannot tell "permanent" from "undecided"; missing end dates become `tba` for review.
       period: toStoredPeriod({ start, end, endKind: end ? "fixed" : "tba" }),
       sources: sourceUrl ? toSources([{ url: sourceUrl, type: "press", isPrimary: true, title: null, publisher: null, accessedAt: null, archiveUrl: null }]) : [],
-      cover: str(d[f.image]) ? { originalUrl: str(d[f.image]), storageKey: null, credit: str(d[f.imageCredit]), alt: { ko: title, en: titleEn } } : null,
+      cover: null as null | Record<string, unknown>,
       origin: { type: "migration", notes: notes || null },
     };
     if (!fields.sources.length) {
@@ -279,6 +294,20 @@ export async function migrateMdx(opts: MigrateOptions) {
     await withTransaction(async (session) => {
       const existing = await Collab.findOne({ slug: p.slug }, null, { session });
       const doc = existing ?? new Collab({ slug: p.slug });
+      const image = imageUrl(str(d[f.image]));
+      const originalUrl = "url" in image ? image.url : null;
+      if (originalUrl) {
+        // Keep the mirrored copy when the image did not change, so re-runs do not re-upload it.
+        const kept = existing?.cover?.originalUrl === originalUrl ? existing.cover : null;
+        fields.cover = {
+          originalUrl,
+          storageKey: kept?.storageKey ?? null,
+          width: kept?.width ?? null,
+          height: kept?.height ?? null,
+          credit: str(d[f.imageCredit]),
+          alt: { ko: title, en: titleEn },
+        };
+      }
       doc.set(fields);
       if (status === "published" && !doc.review?.publishedAt) doc.set("review.publishedAt", fields.period.start ?? new Date());
       if (doc.isNew || doc.isModified()) {

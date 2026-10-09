@@ -151,6 +151,7 @@ pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/coll
 - `active`/`ongoing`/`upcoming` → `published`. 단, 발행 조건을 못 채우는 항목(시작일이나 카테고리 없음)은 `draft`로 들어오고 `warnings`에 나옵니다.
 - `source_url` → `sources[0]`(primary), 종료일이 없는 항목은 `endKind: "tba"`, `note`와 `tags`는 내부 메모(`origin.notes`)로 남깁니다(공개되지 않음).
 - `partner_category`가 여러 개면 첫 번째만 쓰고 `warnings`에 남깁니다.
+- `image`가 `/blog/uploads/...`처럼 옛 블로그의 경로면 `--image-base-url https://<블로그 도메인>`으로 전체 주소로 바꿔 저장합니다(없으면 `problems`). 이미 R2로 복사된 커버는 이미지가 그대로면 다시 실행해도 유지됩니다.
 - 모든 항목은 한국어·영어를 다 갖춰야 합니다. 필요한 필드: `title`/`title_en`(둘 다 없으면 작품명으로 만듦), `summary_ko`/`summary_en`, `game_title`/`game_title_ko`, `ip_title`/`ip_title_ko`, `companies`/`companies_ko`(같은 순서). 하나라도 빠지면 `problems`에 나오고 이관이 중단됩니다.
 - 매핑 파일 형식: `{ "<taxonomy>": { "<원본 값>": "<키>" | ["<키>", …] | null } }`. 키가 분류표에 없으면 `unmapped`로 보고합니다. 표기가 다른 같은 작품은 `--entity-map entities.json`(`{ "AoT": "Attack on Titan" }`)으로 합칩니다.
 

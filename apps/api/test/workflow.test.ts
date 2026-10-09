@@ -247,6 +247,31 @@ describe("MDX migration", () => {
     await Collab.deleteMany({ slug: { $in: ["dated", "undated"] } });
   });
 
+  it("resolves blog-relative image paths and keeps mirrored covers on re-runs", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tmp = await mkdtemp(join(tmpdir(), "mdx-"));
+    await writeFile(
+      join(tmp, "relative-image.mdx"),
+      "---\ntitle: 게임 × 아이피\ntitle_en: Game x IP\ngame_title: Game\ngame_title_ko: 게임\nip_title: IP\nip_title_ko: 아이피\n" +
+        "summary_ko: 요약\nsummary_en: Summary\ncategory: In-Game\nstart_date: 2026-01-01\nimage: /blog/uploads/key art.jpg\n" +
+        "source_url: https://example.com/relative-image\n---\n",
+    );
+    const opts = { dir: tmp, dryRun: false, allowUnmapped: false };
+    const withoutBase = await migrateMdx({ ...opts, dryRun: true });
+    expect(withoutBase.problems[0]).toMatch(/relative-image\.mdx: image "\/blog\/uploads\/key art\.jpg" is a path on the old blog/);
+
+    await migrateMdx({ ...opts, imageBaseUrl: "https://blog.example.com" });
+    const doc = await Collab.findOne({ slug: "relative-image" }).lean();
+    expect(doc!.cover!.originalUrl).toBe("https://blog.example.com/blog/uploads/key%20art.jpg");
+
+    await Collab.updateOne({ slug: "relative-image" }, { $set: { "cover.storageKey": "collabs/relative-image/cover.jpg" } });
+    await migrateMdx({ ...opts, imageBaseUrl: "https://blog.example.com" });
+    expect((await Collab.findOne({ slug: "relative-image" }).lean())!.cover!.storageKey).toBe("collabs/relative-image/cover.jpg");
+    await Collab.deleteMany({ slug: "relative-image" });
+  });
+
   it("migrates with an explicit mapping, re-runnable, with a clean reconciliation", async () => {
     const opts = { dir, dryRun: false, allowUnmapped: false, mapping: { platform: { "Offline Retail": null } }, entityMap: { AoT: "Attack on Titan" } };
     const first = await migrateMdx(opts);
