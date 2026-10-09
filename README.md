@@ -22,9 +22,7 @@ docker exec mongo mongosh --eval "rs.initiate({_id:'rs0',members:[{_id:0,host:'l
 pnpm install
 pnpm build
 
-export MONGODB_URI="mongodb://127.0.0.1:27017/gamecollabs?replicaSet=rs0&directConnection=true"
-export SERVICE_TOKENS=dev-service-token
-export ADMIN_JWT_SECRET=dev-secret-at-least-32-characters-long
+cp .env.example .env   # 값 확인 (MONGODB_URI, SERVICE_TOKENS, ADMIN_JWT_SECRET)
 
 pnpm --filter @gamecollabs/api cli sync-indexes
 pnpm --filter @gamecollabs/api cli seed-taxonomy

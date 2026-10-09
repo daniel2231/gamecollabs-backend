@@ -1,7 +1,8 @@
-import { loadConfig } from "./config.js";
+import { loadConfig, loadDotEnv } from "./config.js";
 import { createApp } from "./app.js";
 import { logger } from "./logger.js";
 
+loadDotEnv();
 const cfg = loadConfig();
 const server = createApp(cfg).listen(cfg.PORT, () => logger.info({ port: cfg.PORT, publicUrl: cfg.PUBLIC_URL }, "mcp server listening"));
 

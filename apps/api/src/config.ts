@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { z } from "zod";
 
 const bool = z
@@ -74,9 +76,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return parsed.data;
 }
 
+/**
+ * Local development: reads `.env` from the current directory and from the
+ * repository root (pnpm runs package scripts inside `apps/*`). Variables
+ * already set in the shell or by Docker always win over the file.
+ */
+export function loadDotEnv(): void {
+  const candidates = new Set([resolve(".env"), resolve("../../.env")]);
+  for (const file of candidates) if (existsSync(file)) process.loadEnvFile(file);
+}
+
 let current: Config | undefined;
 
 export function config(): Config {
+  if (!current) loadDotEnv();
   current ??= loadConfig();
   return current;
 }
