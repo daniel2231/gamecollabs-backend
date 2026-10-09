@@ -121,21 +121,38 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 
 ## MDX 이관 (M1)
 
-```bash
-# 1) 매핑 확인: 통제 어휘로 바꿀 수 없는 값을 보고하고 아무것도 쓰지 않음
-pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../blog/content/collab-tracker --dry-run --report report.json
+원본 114건과 이관 설정은 `deploy/migration/`에 있습니다.
 
-# 2) 남은 값은 매핑 파일로 판정 (null = 버림), 표기 변형은 엔티티 맵으로 합침
-#    mapping.json:  { "platform": { "Offline Retail": null } }
-#    entities.json: { "AoT": "Attack on Titan" }
-pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../blog/content/collab-tracker \
-  --mapping mapping.json --entity-map entities.json --report report.json
+| 파일 | 내용 |
+| --- | --- |
+| `collab-tracker/*.mdx` | 블로그 MVP의 콜라보 원본 |
+| `fields.json` | 필드명 차이 (`title` → `title_ko`) |
+| `mapping.json` | 분류표 별칭으로 처리하지 않는 값: 플랫폼이 아닌 값은 버림(`null`), `PC / Console`은 키 두 개로 |
+
+나머지 표기 변형(`Quest / Event`, `Character Skin`, `Web Browser` …)은 분류표의 별칭(`legacyValues`, `apps/api/src/seed/taxonomy.ts`)으로 처리되어, GPT 수집에도 똑같이 적용됩니다. 분류표를 바꾼 뒤에는 `seed-taxonomy --update`로 DB에 반영합니다.
+
+```bash
+pnpm build
+pnpm --filter @gamecollabs/api cli seed-taxonomy --update
+
+# 1) 미리보기: DB에 쓰지 않고 problems / unmapped / warnings만 보고
+pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/collab-tracker \
+  --fields ../../deploy/migration/fields.json --mapping ../../deploy/migration/mapping.json \
+  --dry-run --report report.json
+
+# 2) 실제 이관: 같은 명령에서 --dry-run만 빼기
+pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/collab-tracker \
+  --fields ../../deploy/migration/fields.json --mapping ../../deploy/migration/mapping.json \
+  --report report.json
 ```
 
-- slug 기준 upsert라 몇 번이고 다시 실행할 수 있습니다. 미판정 값이 남아 있거나 대조 리포트에 누락이 있으면 종료 코드 1입니다 (M0/M1 게이트).
-- `active`/`ongoing`/`upcoming` → `published`, `source_url` → `sources[0]`(primary), 종료일이 없는 항목은 `endKind: "tba"`, `tags`는 `origin.notes`에 남깁니다.
+- slug 기준 upsert라 몇 번이고 다시 실행할 수 있습니다. 다만 다시 실행하면 그사이 관리자 화면에서 고친 내용도 원본 값으로 덮어씁니다.
+- 판정되지 않은 값(`problems`, `unmapped`)이 남아 있거나 대조 리포트에 누락이 있으면 종료 코드 1입니다 (M0/M1 게이트). `warnings`는 이관을 막지 않습니다.
+- `active`/`ongoing`/`upcoming` → `published`. 단, 발행 조건을 못 채우는 항목(시작일이나 카테고리 없음)은 `draft`로 들어오고 `warnings`에 나옵니다.
+- `source_url` → `sources[0]`(primary), 종료일이 없는 항목은 `endKind: "tba"`, `note`와 `tags`는 내부 메모(`origin.notes`)로 남깁니다(공개되지 않음).
+- `partner_category`가 여러 개면 첫 번째만 쓰고 `warnings`에 남깁니다.
 - 모든 항목은 한국어·영어를 다 갖춰야 합니다. 필요한 필드: `title`/`title_en`(둘 다 없으면 작품명으로 만듦), `summary_ko`/`summary_en`, `game_title`/`game_title_ko`, `ip_title`/`ip_title_ko`, `companies`/`companies_ko`(같은 순서). 하나라도 빠지면 `problems`에 나오고 이관이 중단됩니다.
-- 그 밖의 필드명은 PRD 기준(`source_url`, `start_date` …)으로 가정했습니다. 다르면 `--fields fields.json`으로 바꿉니다 (`apps/api/src/cli/migrate.ts`의 `DEFAULT_FIELDS`).
+- 매핑 파일 형식: `{ "<taxonomy>": { "<원본 값>": "<키>" | ["<키>", …] | null } }`. 키가 분류표에 없으면 `unmapped`로 보고합니다. 표기가 다른 같은 작품은 `--entity-map entities.json`(`{ "AoT": "Attack on Titan" }`)으로 합칩니다.
 
 ## 배포 (홈서버)
 

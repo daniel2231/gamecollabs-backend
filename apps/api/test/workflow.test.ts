@@ -221,6 +221,32 @@ describe("MDX migration", () => {
     expect(report.problems).toEqual(["one-language.mdx: missing game_title_ko", "one-language.mdx: missing summary_en"]);
   });
 
+  it("imports unpublishable items as drafts and accepts several keys per mapped value", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tmp = await mkdtemp(join(tmpdir(), "mdx-"));
+    const file = (extra: string) =>
+      "---\ntitle: 게임 × 아이피\ntitle_en: Game x IP\ngame_title: Game\ngame_title_ko: 게임\nip_title: IP\nip_title_ko: 아이피\n" +
+      "summary_ko: 요약\nsummary_en: Summary\ncategory: In-Game\nplatform: [PC / Console]\npartner_category: [Comics, Film / TV]\n" +
+      `source_url: https://example.com/${extra}\n${extra === "dated" ? "start_date: 2026-01-01\n" : ""}---\n`;
+    await writeFile(join(tmp, "dated.mdx"), file("dated"));
+    await writeFile(join(tmp, "undated.mdx"), file("undated"));
+    const opts = { dir: tmp, dryRun: false, allowUnmapped: false, mapping: { platform: { "PC / Console": ["platform.pc", "platform.console"] } } };
+    const dry = await migrateMdx({ ...opts, dryRun: true });
+    expect(dry.unmapped).toEqual({});
+    expect(dry.warnings).toEqual(
+      expect.arrayContaining([expect.stringMatching(/undated\.mdx: will be imported as draft \(missing start_date\)/), expect.stringMatching(/several partner_category/)]),
+    );
+    await migrateMdx(opts);
+    const dated = await Collab.findOne({ slug: "dated" }).lean();
+    expect(dated).toMatchObject({ status: "published", platforms: ["platform.pc", "platform.console"] });
+    expect((await Collab.findOne({ slug: "undated" }).lean())!.status).toBe("draft");
+    const bad = await migrateMdx({ ...opts, dryRun: true, mapping: { platform: { "PC / Console": ["platform.n64"] } } });
+    expect(Object.keys(bad.unmapped)[0]).toMatch(/key not in taxonomy/);
+    await Collab.deleteMany({ slug: { $in: ["dated", "undated"] } });
+  });
+
   it("migrates with an explicit mapping, re-runnable, with a clean reconciliation", async () => {
     const opts = { dir, dryRun: false, allowUnmapped: false, mapping: { platform: { "Offline Retail": null } }, entityMap: { AoT: "Attack on Titan" } };
     const first = await migrateMdx(opts);
@@ -239,6 +265,7 @@ describe("MDX migration", () => {
     expect(taiko!.companies.map((c) => c.role)).toEqual(["unspecified", "unspecified"]);
     expect(taiko!.companies[1]!.name).toEqual({ ko: "가루비", en: "Calbee" });
     expect(taiko!.i18n.en.title).toBe("Taiko no Tatsujin x Jagariko");
+    expect(taiko!.origin.notes).toBe("공식 특설 페이지 기준.\ntags: snack, arcade");
     const blood = await Collab.findOne({ slug: "blood-strike-aot-2026-08" }).lean();
     expect(blood!.i18n.ko.title).toBe("블러드 스트라이크 × 진격의 거인");
     expect(blood!.i18n.en.title).toBe("Blood Strike x Attack on Titan");

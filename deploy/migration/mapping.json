@@ -1,0 +1,11 @@
+{
+  "platform": {
+    "PC / Console": ["platform.pc", "platform.console"],
+    "Offline": null,
+    "Offline Retail": null,
+    "Offline Event": null,
+    "Tabletop": null,
+    "PC Gaming Hardware": null,
+    "Minecraft": null
+  }
+}

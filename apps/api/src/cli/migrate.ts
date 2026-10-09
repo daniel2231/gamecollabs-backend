@@ -43,11 +43,16 @@ export const DEFAULT_FIELDS = {
   image: "image",
   imageCredit: "image_credit",
   tags: "tags",
+  /** Editor remark; kept as an internal note (not shown publicly). */
+  note: "note",
 } as const;
 
 type Fields = Record<keyof typeof DEFAULT_FIELDS, string>;
-/** `{ "platform": { "Offline Retail": null, "Mobile Game": "platform.mobile" } }`. `null` drops the value. */
-type ValueMapping = Partial<Record<Taxonomy, Record<string, string | null>>>;
+/**
+ * `{ "platform": { "Offline Retail": null, "PC / Console": ["platform.pc", "platform.console"] } }`.
+ * A key, several keys, or `null` to drop the value.
+ */
+type ValueMapping = Partial<Record<Taxonomy, Record<string, string | string[] | null>>>;
 /** Raw entity name → canonical name, to merge spelling variants (`"PUBG M": "PUBG Mobile"`). */
 type EntityMapping = Record<string, string>;
 
@@ -90,12 +95,21 @@ async function readItems(dir: string): Promise<Item[]> {
 function mapper(tax: TaxonomyIndex, mapping: ValueMapping, unmapped: Map<string, number>) {
   return (taxonomyName: Taxonomy, values: string[]) => {
     const keys: string[] = [];
+    const miss = (label: string) => unmapped.set(label, (unmapped.get(label) ?? 0) + 1);
     for (const v of values) {
       const explicit = mapping[taxonomyName]?.[v];
       if (explicit === null) continue;
-      const key = explicit ?? tax.map(taxonomyName, v);
+      if (explicit !== undefined) {
+        // Keys named in the mapping file must exist in that taxonomy.
+        for (const key of [explicit].flat()) {
+          if (tax.problemWith(key, taxonomyName)) miss(`${taxonomyName}: ${v} → ${key} (key not in taxonomy)`);
+          else keys.push(key);
+        }
+        continue;
+      }
+      const key = tax.map(taxonomyName, v);
       if (key) keys.push(key);
-      else unmapped.set(`${taxonomyName}: ${v}`, (unmapped.get(`${taxonomyName}: ${v}`) ?? 0) + 1);
+      else miss(`${taxonomyName}: ${v}`);
     }
     return [...new Set(keys)];
   };
@@ -113,9 +127,20 @@ export async function migrateMdx(opts: MigrateOptions) {
   // Pass 1: classification + entity candidates, without writing.
   // Every title, summary and name must exist in Korean and English; anything missing is a problem.
   type Names = { en: string; ko: string };
-  type Plan = { item: Item; slug: string; game: Names; ip: Names; companies: Names[]; partnerKind: string | null; keys: Record<string, string[]> };
+  type Plan = {
+    item: Item;
+    slug: string;
+    game: Names;
+    ip: Names;
+    companies: Names[];
+    partnerKind: string | null;
+    keys: Record<string, string[]>;
+    /** Imported as a draft because the publish rules would refuse it. */
+    draft: boolean;
+  };
   const plans: Plan[] = [];
   const problems: string[] = [];
+  const warnings: string[] = [];
   const entityNames = new Map<string, Names & { kind: string | null; variants: Set<string> }>();
   const companyNames = new Map<string, Names & { variants: Set<string> }>();
 
@@ -140,7 +165,9 @@ export async function migrateMdx(opts: MigrateOptions) {
     if (!str(d[f.title]) !== !str(d[f.titleEn])) missing(str(d[f.title]) ? f.titleEn : f.title);
     if (problems.length > before) continue;
 
-    const [partnerKind = null] = map("partner_category", arr(d[f.partnerCategory]));
+    const partnerKinds = map("partner_category", arr(d[f.partnerCategory]));
+    const partnerKind = partnerKinds[0] ?? null;
+    if (partnerKinds.length > 1) warnings.push(`${item.file}: several ${f.partnerCategory} values, using ${partnerKind} (dropped ${partnerKinds.slice(1).join(", ")})`);
     const keys = {
       category: map("category", arr(d[f.category])),
       regions: map("region", arr(d[f.region])),
@@ -150,7 +177,11 @@ export async function migrateMdx(opts: MigrateOptions) {
     const game = { en: canonical(gameEn!), ko: gameKo! };
     const ip = { en: canonical(ipEn!), ko: ipKo! };
     const companies = companiesEn.map((en, i) => ({ en: canonical(en), ko: companiesKo[i]! }));
-    plans.push({ item, slug, game, ip, companies, partnerKind, keys });
+    // Anything the publish rules would refuse comes in as a draft for the editor to finish.
+    const missingForPublish = [!dateStr(d[f.start]) && f.start, !keys.category[0] && f.category].filter(Boolean);
+    const draft = str(d[f.status]) !== "archived" && missingForPublish.length > 0;
+    if (draft) warnings.push(`${item.file}: will be imported as draft (missing ${missingForPublish.join(", ")})`);
+    plans.push({ item, slug, game, ip, companies, partnerKind, keys, draft });
     for (const [names, raw, kind] of [
       [game, gameEn!, tax.map("partner_category", "game")],
       [ip, ipEn!, partnerKind],
@@ -172,6 +203,7 @@ export async function migrateMdx(opts: MigrateOptions) {
     files: items.length,
     planned: plans.length,
     problems,
+    warnings,
     unmapped: Object.fromEntries([...unmapped.entries()].sort()),
     entities: { properties: entityNames.size, companies: companyNames.size },
     written: 0,
@@ -209,11 +241,13 @@ export async function migrateMdx(opts: MigrateOptions) {
     const ip = propertyIds.get(nameKey(p.ip.en))!;
     const start = dateStr(d[f.start]);
     const end = dateStr(d[f.end]);
-    const status = str(d[f.status]) === "archived" ? "archived" : "published";
+    const category = p.keys.category![0] ?? null;
+    const status = str(d[f.status]) === "archived" ? "archived" : p.draft ? "draft" : "published";
     const sourceUrl = str(d[f.sourceUrl]);
     const title = str(d[f.title]) ?? `${p.game.ko} × ${p.ip.ko}`;
     const titleEn = str(d[f.titleEn]) ?? `${p.game.en} x ${p.ip.en}`;
     const tags = arr(d[f.tags]);
+    const notes = [str(d[f.note]), tags.length ? `tags: ${tags.join(", ")}` : null].filter(Boolean).join("\n");
     const fields = {
       status,
       i18n: {
@@ -228,7 +262,7 @@ export async function migrateMdx(opts: MigrateOptions) {
         const c = companyIds.get(nameKey(names.en))!;
         return { companyId: c!._id, slug: c!.slug, role: "unspecified", name: snapshotName(c!.name) };
       }),
-      category: p.keys.category![0] ?? null,
+      category,
       regions: p.keys.regions,
       platforms: p.keys.platforms,
       collabTypes: p.keys.collabTypes,
@@ -236,7 +270,7 @@ export async function migrateMdx(opts: MigrateOptions) {
       period: toStoredPeriod({ start, end, endKind: end ? "fixed" : "tba" }),
       sources: sourceUrl ? toSources([{ url: sourceUrl, type: "press", isPrimary: true, title: null, publisher: null, accessedAt: null, archiveUrl: null }]) : [],
       cover: str(d[f.image]) ? { originalUrl: str(d[f.image]), storageKey: null, credit: str(d[f.imageCredit]), alt: { ko: title, en: titleEn } } : null,
-      origin: { type: "migration", notes: tags.length ? `tags: ${tags.join(", ")}` : null },
+      origin: { type: "migration", notes: notes || null },
     };
     if (!fields.sources.length) {
       problems.push(`${p.item.file}: no ${f.sourceUrl}, skipped`);
