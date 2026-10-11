@@ -50,22 +50,30 @@ async function findEntity(model: typeof Property | typeof Company, names: (strin
 }
 
 type Side = IngestCandidate["game"];
+type CompanySide = IngestCandidate["companies"][number];
+type NamedSide = { name: string; slug?: string | null; names?: Side["names"] };
+
+const sideNames = (side: NamedSide) => [side.name, side.names?.ko, side.names?.en, side.names?.original];
 
 /**
- * Creates the game/IP a candidate names when nothing matched, so the draft is
- * linked instead of carrying a bare name. Needs the official ko/en names;
+ * Creates the game/IP or company a candidate names when nothing matched, so the
+ * draft is linked instead of carrying a bare name. Needs the official ko/en names;
  * marked with the run id so the reviewer can find (and merge) it later.
  */
-async function createMissingProperty(side: Side, kind: string, runId: string) {
+async function createMissing<M extends typeof Property | typeof Company>(model: M, side: NamedSide, runId: string, extra: Record<string, unknown>) {
   if (!side.names) return null;
+  const m = model as typeof Property;
   const { ko, en, original } = side.names;
-  const base = slugify(side.slug ?? en) || slugify(side.name) || "property";
+  const base = slugify(side.slug ?? en) || slugify(side.name) || "entity";
   let slug = base;
-  for (let i = 2; await Property.exists({ $or: [{ slug }, { formerSlugs: slug }] }); i++) slug = `${base}-${i}`;
+  for (let i = 2; await m.exists({ $or: [{ slug }, { formerSlugs: slug }] }); i++) slug = `${base}-${i}`;
   const aliases = [side.name].filter((n) => ![ko, en, original].some((x) => x && nameKey(x) === nameKey(n)));
-  const doc = await Property.create({ slug, kind, name: { ko, en, original: original ?? null }, aliases, createdByRun: runId });
+  const doc = await m.create({ slug, name: { ko, en, original: original ?? null }, aliases, createdByRun: runId, ...extra });
   return doc.toObject();
 }
+
+const createMissingProperty = (side: Side, kind: string, runId: string) => createMissing(Property, side, runId, { kind });
+const createMissingCompany = (side: CompanySide, runId: string) => createMissing(Company, side, runId, { country: side.country ?? null });
 
 type Unmapped = Record<string, string[]>;
 
@@ -101,7 +109,6 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
   let sourceUrls = [...new Set(c.sources.map((s) => normalizeUrl(s.url)))];
 
   // 2. Entities.
-  const sideNames = (side: Side) => [side.name, side.names?.ko, side.names?.en, side.names?.original];
   let game = await findEntity(Property, sideNames(c.game), c.game.slug);
   let partner = await findEntity(Property, sideNames(c.partner), c.partner.slug);
 
@@ -164,9 +171,14 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
 
   const companies: CollabInput["companies"] = [];
   for (const co of c.companies) {
-    const company = await findEntity(Company, [co.name]);
-    if (company) companies.push({ companyId: company._id.toString(), role: co.role });
-    else (unmapped.companies ??= []).push(`${co.name} (${co.role})`);
+    let company = await findEntity(Company, sideNames(co), co.slug);
+    if (!company) {
+      company = await createMissingCompany(co, ctx.runId);
+      if (company) warnings.push(`created company "${company.slug}" (new, check it in the entity list)`);
+    }
+    if (company) {
+      if (!companies.some((x) => x.companyId === company!._id.toString() && x.role === co.role)) companies.push({ companyId: company._id.toString(), role: co.role });
+    } else (unmapped.companies ??= []).push(`${co.name} (${co.role})`);
   }
 
   const bySourceUrl = new Map(c.sources.map((s) => [normalizeUrl(s.url), s]));

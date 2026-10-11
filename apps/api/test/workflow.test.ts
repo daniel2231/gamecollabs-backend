@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { setConfig } from "../src/config.js";
 import { Collab } from "../src/models/collab.js";
-import { Property } from "../src/models/entities.js";
+import { Company, Property } from "../src/models/entities.js";
 import { IngestRun, JobLock, Submission } from "../src/models/support.js";
 import { migrateMdx } from "../src/cli/migrate.js";
 import { consistency, recount, reindexFacets } from "../src/jobs/tasks.js";
@@ -110,7 +110,11 @@ describe("ingest", () => {
       title: { ko: "킹 오브 파이터즈'98 UM 온라인 × 단다단", en: "The King of Fighters '98 UM Online x Dan Da Dan" },
       game: { name: "KOF98UM OL", names: { ko: "킹 오브 파이터즈'98 UM 온라인", en: "The King of Fighters '98 Ultimate Match Online" } },
       partner: { name: "Dandadan", kind: "Anime / Manga", names: { ko: "단다단", en: "Dan Da Dan", original: "ダンダダン" } },
-      companies: [],
+      companies: [
+        { name: "SNK", role: "publisher", names: { ko: "SNK", en: "SNK" }, country: "JP" },
+        { name: "Krafton Inc.", role: "brand_partner", names: { ko: "크래프톤", en: "Krafton" } },
+        { name: "Mystery Licensor", role: "licensor" },
+      ],
       sources: [{ url: "https://x.com/kof98umol/status/2101118600136265786" }],
     });
     const res = await as(ingest).post("/v1/ingest/candidates").send({ client: "chatgpt-mcp", runId: "run-new", candidates: [kof] });
@@ -134,6 +138,18 @@ describe("ingest", () => {
     const second = await Collab.findById(again.body.data.results[0].id).lean();
     expect(second!.parties.map((p) => p.propertyId!.toString())).toEqual(doc!.parties.map((p) => p.propertyId!.toString()));
     expect(await Property.countDocuments({ createdByRun: "run-new" })).toBe(2);
+
+    // Companies: created from names (SNK), linked through names.ko/en ("Krafton Inc." → Krafton), raw text without names.
+    expect(r.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/created company "snk"/)]));
+    expect(r.unmapped).toEqual({ region: ["Atlantis"], companies: ["Mystery Licensor (licensor)"] });
+    const snk = await Company.findOne({ slug: "snk" }).lean();
+    expect(snk).toMatchObject({ country: "JP", createdByRun: "run-new", name: { ko: "SNK", en: "SNK" } });
+    expect(doc!.companies.map((x) => [x.slug, x.role])).toEqual([
+      ["snk", "publisher"],
+      ["krafton", "brand_partner"],
+    ]);
+    expect(second!.companies.map((x) => x.slug)).toEqual(["snk", "krafton"]);
+    expect(await Company.countDocuments({ slug: /^snk/ })).toBe(1);
   });
 
   it("keeps a bare name when the official names are not given, and creates nothing for duplicates", async () => {

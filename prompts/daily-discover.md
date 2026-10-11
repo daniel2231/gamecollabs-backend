@@ -33,6 +33,9 @@ Today is {{TODAY}}.
   English names (add `"original"` for the Japanese/Chinese original title). A new game or IP is
   created from these, so use the official spelling, not a translation of your own. Set
   `partner.kind` (anime, film/TV, music, VTuber, webtoon, character, food & beverage, game …).
+- `companies`: the publisher/developer of the game and the licensor or brand behind the
+  partner when the source names them, each with `role`, `names` (`{ ko, en, original? }`,
+  official spelling) and `country` (ISO code, e.g. `JP`). New companies are created from these.
 - `summary`: 1–3 neutral sentences on what the collab adds (items, characters, events, period),
   written in both Korean (`summary.ko`) and English (`summary.en`).
 - No sales, revenue or player-count estimates. No rumours or leaks.

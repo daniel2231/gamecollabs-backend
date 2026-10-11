@@ -10,8 +10,8 @@ const TaxonomyValue = z.string().trim().min(1).max(80);
 
 /**
  * Official Korean and English names (and the original-script name, e.g. Japanese).
- * When no existing game/IP matches, the server creates one from these so the
- * draft is linked; without them the party is kept as a bare name for the reviewer.
+ * When no existing game/IP/company matches, the server creates one from these so
+ * the draft is linked; without them the name is kept for the reviewer.
  */
 const EntityNames = z.object({ ko: Name, en: Name, original: Name.nullish() });
 
@@ -24,7 +24,19 @@ export const IngestCandidate = z.object({
     summary: z.object({ ko: z.string().trim().min(1).max(4000), en: z.string().trim().min(1).max(4000) }),
     game: z.object({ name: Name, slug: Slug.nullish(), names: EntityNames.nullish() }),
     partner: z.object({ name: Name, slug: Slug.nullish(), kind: TaxonomyValue.nullish(), names: EntityNames.nullish() }),
-    companies: z.array(z.object({ name: Name, role: CompanyRole.default("unspecified") })).max(10).default([]),
+    companies: z
+      .array(
+        z.object({
+          name: Name,
+          role: CompanyRole.default("unspecified"),
+          slug: Slug.nullish(),
+          names: EntityNames.nullish(),
+          /** ISO 3166-1 alpha-2 of the headquarters (e.g. JP), used when the company is created. */
+          country: z.string().regex(/^[A-Z]{2}$/, "expected ISO 3166-1 alpha-2 (e.g. JP)").nullish(),
+        }),
+      )
+      .max(10)
+      .default([]),
     category: TaxonomyValue.nullish(),
     regions: z.array(TaxonomyValue).max(20).default([]),
     platforms: z.array(TaxonomyValue).max(20).default([]),
