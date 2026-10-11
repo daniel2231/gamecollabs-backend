@@ -40,6 +40,10 @@ export const DEFAULT_FIELDS = {
   summaryKo: "summary_ko",
   summaryEn: "summary_en",
   sourceUrl: "source_url",
+  /** More source URLs after the primary one. */
+  extraSources: "extra_sources",
+  /** `fixed`, `permanent` or `tba`. Without it a missing end date means `tba`. */
+  endKind: "end_kind",
   image: "image",
   imageCredit: "image_credit",
   tags: "tags",
@@ -82,6 +86,8 @@ const arr = (v: unknown): string[] =>
         .filter(Boolean);
 
 const str = (v: unknown): string | null => (v == null || v === "" ? null : String(v).trim());
+
+const endKindOf = (v: unknown): "permanent" | "tba" => (str(v) === "permanent" ? "permanent" : "tba");
 
 function dateStr(v: unknown): string | null {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -281,9 +287,21 @@ export async function migrateMdx(opts: MigrateOptions) {
       regions: p.keys.regions,
       platforms: p.keys.platforms,
       collabTypes: p.keys.collabTypes,
-      // The MVP cannot tell "permanent" from "undecided"; missing end dates become `tba` for review.
-      period: toStoredPeriod({ start, end, endKind: end ? "fixed" : "tba" }),
-      sources: sourceUrl ? toSources([{ url: sourceUrl, type: "press", isPrimary: true, title: null, publisher: null, accessedAt: null, archiveUrl: null }]) : [],
+      // The MVP cannot tell "permanent" from "undecided": without end_kind a missing end date is `tba`.
+      period: toStoredPeriod({ start, end, endKind: end ? "fixed" : endKindOf(d[f.endKind]) }),
+      sources: sourceUrl
+        ? toSources(
+            [sourceUrl, ...arr(d[f.extraSources])].map((url, i) => ({
+              url,
+              type: "press" as const,
+              isPrimary: i === 0,
+              title: null,
+              publisher: null,
+              accessedAt: null,
+              archiveUrl: null,
+            })),
+          )
+        : [],
       cover: null as null | Record<string, unknown>,
       origin: { type: "migration", notes: notes || null },
     };

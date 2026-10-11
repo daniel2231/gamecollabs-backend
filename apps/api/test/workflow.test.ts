@@ -325,6 +325,28 @@ describe("MDX migration", () => {
     await Collab.deleteMany({ slug: { $in: ["dated", "undated"] } });
   });
 
+  it("reads end_kind and extra source URLs", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const tmp = await mkdtemp(join(tmpdir(), "mdx-"));
+    const file = (id: string, extra: string) =>
+      `---\nid: ${id}\ntitle: 게임 × 아이피\ntitle_en: Game x IP\ngame_title: Game\ngame_title_ko: 게임\nip_title: IP\nip_title_ko: 아이피\n` +
+      `summary_ko: 요약\nsummary_en: Summary\ncategory: In-Game\npartner_category: [Comics]\nstart_date: 2026-01-01\n` +
+      `source_url: https://official.example.com/${id}\n${extra}---\n`;
+    await writeFile(join(tmp, "a.mdx"), file("kind-permanent", "end_kind: permanent\nextra_sources:\n  - https://news.example.com/a\n"));
+    await writeFile(join(tmp, "b.mdx"), file("kind-default", ""));
+    await migrateMdx({ dir: tmp, dryRun: false, allowUnmapped: false });
+    const a = await Collab.findOne({ slug: "kind-permanent" }).lean();
+    expect(a!.period).toMatchObject({ endKind: "permanent", end: null });
+    expect(a!.sources.map((x) => [x.url, x.isPrimary])).toEqual([
+      ["https://official.example.com/kind-permanent", true],
+      ["https://news.example.com/a", false],
+    ]);
+    expect((await Collab.findOne({ slug: "kind-default" }).lean())!.period.endKind).toBe("tba");
+    await Collab.deleteMany({ slug: { $in: ["kind-permanent", "kind-default"] } });
+  });
+
   it("resolves blog-relative image paths and keeps mirrored covers on re-runs", async () => {
     const { mkdtemp, writeFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
