@@ -149,6 +149,7 @@ pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/coll
 ```
 
 - slug 기준 upsert라 몇 번이고 다시 실행할 수 있습니다. 다만 다시 실행하면 그사이 관리자 화면에서 고친 내용도 원본 값으로 덮어씁니다.
+- 다시 실행해도 이미 있는 작품·회사의 이름은 바꾸지 않습니다. 파일에서 표기를 고쳤다면(`Sega` → `SEGA`) `--update-names`를 붙이면 파일의 한·영 표기로 바뀌고 이전 표기는 별칭으로 남습니다. 이름 자체가 바뀐 경우(다른 이름 키)는 새 항목이 생기므로, 이전 항목을 관리자 화면에서 새 항목으로 병합하세요(이전 slug는 리다이렉트로 유지).
 - 판정되지 않은 값(`problems`, `unmapped`)이 남아 있거나 대조 리포트에 누락이 있으면 종료 코드 1입니다 (M0/M1 게이트). `warnings`는 이관을 막지 않습니다.
 - `active`/`ongoing`/`upcoming` → `published`. 단, 발행 조건을 못 채우는 항목(시작일이나 카테고리 없음)은 `draft`로 들어오고 `warnings`에 나옵니다.
 - `source_url` → `sources[0]`(primary), `extra_sources`(목록) → 나머지 출처. 종료일이 없는 항목은 `end_kind`(`permanent`/`tba`)를 따르고, 없으면 `endKind: "tba"`. `note`와 `tags`는 내부 메모(`origin.notes`)로 남깁니다(공개되지 않음).

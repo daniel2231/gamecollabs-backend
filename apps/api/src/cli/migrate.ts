@@ -74,6 +74,8 @@ export type MigrateOptions = {
    * resolved against it so the cover mirror job can download them.
    */
   imageBaseUrl?: string;
+  /** Existing games/IPs/companies take the files' Korean and English spelling (same name key, e.g. "Sega" → "SEGA"). */
+  updateNames?: boolean;
 };
 
 type Item = { file: string; data: Record<string, unknown> };
@@ -235,6 +237,16 @@ export async function migrateMdx(opts: MigrateOptions) {
     return { ...report, aborted: !opts.dryRun };
   }
 
+  /** Keeps the old spelling as an alias so lookups by it still match. */
+  const renameTo = (doc: { name: { ko?: string | null; en?: string | null }; aliases: string[] }, n: Names) => {
+    const old = [doc.name.en, doc.name.ko].filter((v): v is string => !!v && v !== n.en && v !== n.ko);
+    doc.name.en = n.en;
+    doc.name.ko = n.ko;
+    // Aliases that normalize to the new names add nothing (lookups compare normalized keys).
+    const same = new Set([nameKey(n.en), nameKey(n.ko)]);
+    doc.aliases = [...new Set([...doc.aliases, ...old])].filter((v) => !same.has(nameKey(v)));
+  };
+
   // Pass 2: entities (upsert by slug), then collabs.
   const propertyIds = new Map<string, Awaited<ReturnType<typeof Property.findOne>>>();
   const isName = (v: string, n: Names) => v === n.en || v === n.ko;
@@ -242,6 +254,7 @@ export async function migrateMdx(opts: MigrateOptions) {
     const slug = slugify(e.en) || `property-${key.slice(0, 24)}`;
     let doc = await Property.findOne({ $or: [{ nameKeys: key }, { slug }] });
     doc ??= new Property({ slug, kind: e.kind ?? "partner_category.other", name: { ko: e.ko, en: e.en } });
+    if (opts.updateNames) renameTo(doc, e);
     doc.aliases = [...new Set([...doc.aliases, ...[...e.variants].filter((v) => !isName(v, e))])];
     await doc.save();
     propertyIds.set(key, doc);
@@ -251,6 +264,7 @@ export async function migrateMdx(opts: MigrateOptions) {
     const slug = slugify(c.en) || `company-${key.slice(0, 24)}`;
     let doc = await Company.findOne({ $or: [{ nameKeys: key }, { slug }] });
     doc ??= new Company({ slug, name: { ko: c.ko, en: c.en } });
+    if (opts.updateNames) renameTo(doc, c);
     doc.aliases = [...new Set([...doc.aliases, ...[...c.variants].filter((v) => !isName(v, c))])];
     await doc.save();
     companyIds.set(key, doc);

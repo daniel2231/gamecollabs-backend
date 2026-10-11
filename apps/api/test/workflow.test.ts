@@ -347,6 +347,29 @@ describe("MDX migration", () => {
     await Collab.deleteMany({ slug: { $in: ["kind-permanent", "kind-default"] } });
   });
 
+  it("updates entity spelling from the files with --update-names", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { Company } = await import("../src/models/entities.js");
+    const tmp = await mkdtemp(join(tmpdir(), "mdx-"));
+    const file = (company: string, companyKo: string) =>
+      `---\nid: rename-check\ntitle: 게임 × 아이피\ntitle_en: Game x IP\ngame_title: Game\ngame_title_ko: 게임\nip_title: IP\nip_title_ko: 아이피\n` +
+      `summary_ko: 요약\nsummary_en: Summary\ncategory: In-Game\npartner_category: [Comics]\nstart_date: 2026-01-01\n` +
+      `companies: ["${company}"]\ncompanies_ko: ["${companyKo}"]\nsource_url: https://official.example.com/rename\n---\n`;
+    await writeFile(join(tmp, "a.mdx"), file("Segami", "세가미"));
+    await migrateMdx({ dir: tmp, dryRun: false, allowUnmapped: false });
+    await writeFile(join(tmp, "a.mdx"), file("SEGAMI", "세가미 주식회사"));
+    await migrateMdx({ dir: tmp, dryRun: false, allowUnmapped: false });
+    expect((await Company.findOne({ slug: "segami" }).lean())!.name.en).toBe("Segami");
+    await migrateMdx({ dir: tmp, dryRun: false, allowUnmapped: false, updateNames: true });
+    const c = await Company.findOne({ slug: "segami" }).lean();
+    // Same entity, new spelling; the old Korean name stays findable as an alias, "Segami" adds nothing.
+    expect(c).toMatchObject({ name: { en: "SEGAMI", ko: "세가미 주식회사" }, aliases: ["세가미"] });
+    expect(await Company.countDocuments({ slug: /^segami/ })).toBe(1);
+    await Collab.deleteMany({ slug: "rename-check" });
+  });
+
   it("resolves blog-relative image paths and keeps mirrored covers on re-runs", async () => {
     const { mkdtemp, writeFile } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
