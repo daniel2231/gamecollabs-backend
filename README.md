@@ -63,6 +63,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
 | GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신) |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만) |
+| POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → `PATCH cover.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
 | GET/POST/PATCH | `/v1/admin/taxonomies` | 분류값 관리 (추가·수정은 관리자만) |
 | GET | `/v1/admin/ingest-runs`, `/v1/admin/submissions` | 수집 실행 기록, 제보 큐 |
@@ -135,6 +136,7 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | `reindex-facets` | 매일 03:40 | 분류 계층 변경 후 `facetKeys` 재계산 |
 | `consistency` | 일 04:40 | 이름 스냅샷 불일치 수정 |
 | `mirror-covers` | 매시 15분 | 커버 이미지를 R2로 복사 (F-09) |
+| `cleanup-uploads` | 일 05:30 | 어느 콜라보도 쓰지 않는 업로드 커버(`covers/`) 중 7일 지난 것 삭제 |
 | `export-json` | 일 05:00 | 컬렉션별 Extended JSON 덤프 (`EXPORT_DIR`, Git 커밋용) |
 | `discover-openai` | 매일 09:05 | 대체 수집 경로 (키가 있을 때만) |
 

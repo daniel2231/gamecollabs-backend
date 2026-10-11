@@ -98,11 +98,25 @@ export function collabDetail(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex
   };
 }
 
-/** Admin view: the stored document minus search tokens, plus the computed phase. */
+/** Admin view: the stored document minus search tokens, plus the computed phase and the cover's public URL. */
 export function collabAdmin(doc: LeanCollab, now = new Date()) {
   const { searchTokens: _omit, ...rest } = doc as LeanCollab & { searchTokens?: unknown };
+  const c = doc.cover;
   return {
     ...rest,
+    cover:
+      c && (c.storageKey || c.originalUrl)
+        ? {
+            storageKey: c.storageKey ?? null,
+            url: mediaUrl(c.storageKey) ?? c.originalUrl ?? null,
+            originalUrl: c.originalUrl ?? null,
+            credit: c.credit ?? null,
+            alt: c.alt?.ko && c.alt?.en ? { ko: c.alt.ko, en: c.alt.en } : null,
+            width: c.width ?? null,
+            height: c.height ?? null,
+            mirrorError: c.mirrorError ?? null,
+          }
+        : null,
     id: doc._id.toString(),
     phase: phaseOf({ start: doc.period?.start ?? null, until: doc.period?.until ?? null, endKind: doc.period?.endKind ?? "fixed" }, now),
   };

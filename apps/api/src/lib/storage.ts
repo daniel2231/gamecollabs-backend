@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { config } from "../config.js";
 
 let client: S3Client | null = null;
@@ -30,6 +30,26 @@ export async function putObject(key: string, body: Buffer, contentType: string):
       CacheControl: "public, max-age=31536000, immutable",
     }),
   );
+}
+
+/** Every object under `prefix` with its upload time. */
+export async function listObjects(prefix: string): Promise<{ key: string; lastModified: Date | null }[]> {
+  const out: { key: string; lastModified: Date | null }[] = [];
+  let token: string | undefined;
+  do {
+    const page = await s3().send(new ListObjectsV2Command({ Bucket: config().S3_BUCKET, Prefix: prefix, ContinuationToken: token }));
+    for (const o of page.Contents ?? []) if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified ?? null });
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
+
+export async function deleteObjects(keys: string[]): Promise<void> {
+  for (let i = 0; i < keys.length; i += 1000) {
+    await s3().send(
+      new DeleteObjectsCommand({ Bucket: config().S3_BUCKET, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }),
+    );
+  }
 }
 
 /** Only the key is stored in the DB; the public URL is built from MEDIA_BASE_URL. */

@@ -1,4 +1,5 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
+import multer from "multer";
 import { z } from "zod";
 import {
   AdminCollabListQuery,
@@ -17,7 +18,7 @@ import {
   TransitionInput,
 } from "@gamecollabs/schema";
 import { principal, requireScope } from "../auth/principal.js";
-import { badRequest, notFound, parse } from "../lib/errors.js";
+import { HttpError, badRequest, notFound, parse } from "../lib/errors.js";
 import { IngestRun, Submission } from "../models/support.js";
 import {
   createDraft,
@@ -40,7 +41,7 @@ import {
   type EntityType,
 } from "../services/entities.js";
 import { lookupCollabs } from "../services/ingest.js";
-import { mirrorCover } from "../services/media.js";
+import { UPLOAD_MAX_BYTES, mirrorCover, storeUpload } from "../services/media.js";
 import { collabAdmin, entitySummary } from "../services/serialize.js";
 import { createTerm, taxonomy, updateTerm } from "../services/taxonomy.js";
 
@@ -101,6 +102,27 @@ adminRouter.post("/collabs/:id/cover/mirror", requireScope("collabs:write"), asy
   const doc = await getById(id(req));
   const result = await mirrorCover(doc);
   res.json({ data: { result, collab: collabAdmin((await getById(id(req))).toObject()) } });
+});
+
+/* ---------------------------------------------------------------- media */
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: UPLOAD_MAX_BYTES, files: 1, fields: 5, parts: 6 } });
+
+/** multipart field `file`; multer's own errors become the API's error envelope. */
+const singleFile: RequestHandler = (req, res, next) => {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      return next(err.code === "LIMIT_FILE_SIZE" ? new HttpError(413, "payload_too_large", "image is larger than 5MB") : badRequest("invalid_upload", err.message));
+    }
+    next(err);
+  });
+};
+
+/** Cover upload: re-encoded to WebP and stored under a content-hash key; link it with PATCH cover.storageKey. */
+adminRouter.post("/media", requireScope("collabs:write"), singleFile, async (req, res) => {
+  if (!req.file) throw badRequest("file_required", "send the image as multipart field `file`");
+  res.status(201).json({ data: await storeUpload(req.file.buffer) });
 });
 
 /* ---------------------------------------------------------------- entities */

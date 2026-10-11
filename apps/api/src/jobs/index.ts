@@ -4,6 +4,7 @@ import { logger } from "../logger.js";
 import { withJobLock } from "./lock.js";
 import { consistency, exportJson, linkCheck, mirrorCovers, recount, reindexFacets } from "./tasks.js";
 import { discoverWithOpenAI } from "./discover.js";
+import { cleanupUploads } from "../services/media.js";
 
 type Job = { run: () => Promise<unknown>; schedule: string; ttlMs: number; enabled?: () => boolean };
 
@@ -17,6 +18,7 @@ export const JOBS: Record<string, Job> = {
   consistency: { run: consistency, schedule: "40 4 * * 0", ttlMs: 20 * MIN },
   "mirror-covers": { run: () => mirrorCovers(), schedule: "15 * * * *", ttlMs: 20 * MIN },
   "export-json": { run: () => exportJson(), schedule: "0 5 * * 0", ttlMs: 10 * MIN },
+  "cleanup-uploads": { run: () => cleanupUploads(), schedule: "30 5 * * 0", ttlMs: 10 * MIN },
   "discover-openai": {
     run: () => discoverWithOpenAI(),
     schedule: "5 9 * * *",
