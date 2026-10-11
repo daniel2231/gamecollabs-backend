@@ -287,6 +287,7 @@ export async function lookupEntities(name: string) {
     for (const [doc, exactMatch] of [...exact.map((d) => [d, true] as const), ...fuzzy.map((d) => [d, false] as const)]) {
       out.push({
         type,
+        id: doc._id.toString(),
         slug: doc.slug,
         name: { ko: doc.name.ko ?? null, en: doc.name.en ?? null, original: doc.name.original ?? null },
         aliases: doc.aliases.slice(0, 10),

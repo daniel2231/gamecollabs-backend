@@ -18,7 +18,7 @@ Commands:
   sync-indexes                         Create/update MongoDB indexes from the models
   seed-taxonomy [--update]             Insert the initial taxonomy (--update overwrites labels/legacy values)
   create-user --github <login> --role <admin|editor> [--name <name>]
-  create-token --name <name> --role <agent|ingest>   Prints a new API token once
+  create-token --name <name> --role <agent|ingest|admin>   Prints a new API token once (admin: for the MCP admin tools)
   revoke-token --name <name>
   migrate-mdx --dir <content/collab-tracker> [--dry-run] [--allow-unmapped]
               [--fields fields.json] [--mapping mapping.json] [--entity-map entities.json] [--report report.json]
@@ -80,7 +80,7 @@ async function main() {
       }
       case "create-token": {
         const role = values.role as Role;
-        if (!values.name || !["agent", "ingest"].includes(role) || !ROLES.includes(role)) throw new Error("--name and --role agent|ingest are required");
+        if (!values.name || !["agent", "ingest", "admin"].includes(role) || !ROLES.includes(role)) throw new Error("--name and --role agent|ingest|admin are required");
         if (await User.exists({ kind: "token", name: values.name, active: true })) throw new Error(`active token ${values.name} exists; revoke it first`);
         const token = generateToken();
         await User.create({ kind: "token", name: values.name, role, tokenHash: hashToken(token), tokenPrefix: token.slice(0, 10) });

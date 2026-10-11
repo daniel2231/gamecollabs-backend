@@ -137,6 +137,19 @@ describe("collab workflow", () => {
     expect(Object.keys(res.body.error.fields)).toEqual(expect.arrayContaining(["parties", "parties.0.propertyId", "category", "period.start"]));
   });
 
+  it("serves admin tokens (MCP admin tools) with full rights and finds collabs by slug", async () => {
+    const adminToken = await apiToken("mcp-admin", "admin");
+    const created = await as(adminToken).post("/v1/admin/collabs").send(draftBody(e.pubg.id, e.aot.id, { sources: [{ url: "https://example.com/by-slug" }], slug: "by-slug-check" }));
+    expect(created.status).toBe(201);
+    const bySlug = await as(adminToken).get("/v1/admin/collabs/by-slug-check");
+    expect(bySlug.body.data).toMatchObject({ id: created.body.data.id, rev: 1 });
+    const patched = await as(adminToken).patch("/v1/admin/collabs/by-slug-check").set("if-match", "1").send({ category: "category.brand_campaign" });
+    expect(patched.status).toBe(200);
+    expect(patched.body.data.rev).toBe(2);
+    expect((await as(adminToken).get("/v1/admin/collabs/no-such-slug")).status).toBe(404);
+    expect((await as(adminToken).post("/v1/admin/taxonomies").send({ key: "platform.mcp_check", label: { ko: "검사", en: "Check" } })).status).toBe(201);
+  });
+
   it("requires a reason to reject", async () => {
     const { body } = await as(agent).post("/v1/admin/collabs").send(draftBody(e.taiko.id, e.jagariko.id, { sources: [{ url: "https://example.com/rej" }] }));
     expect((await as(editor).post(`/v1/admin/collabs/${body.data.id}/transition`).send({ action: "reject" })).status).toBe(422);

@@ -13,6 +13,8 @@ import { dailyRunId } from "../src/tools.js";
 
 const PUBLIC_URL = "http://localhost:3001";
 const API_KEY = "gct_internal_test_key";
+const ADMIN_KEY = "gct_admin_test_key";
+let baseCfg: ReturnType<typeof loadConfig>;
 const received: { path: string; auth?: string; body?: unknown }[] = [];
 let fakeApi: Server;
 let app: ReturnType<typeof createApp>;
@@ -32,6 +34,12 @@ beforeAll(async () => {
   api.get("/v1/ingest/lookup/entities", (_req, res) => {
     res.json({ data: [{ type: "property", slug: "attack-on-titan", exact: true }] });
   });
+  const doc = { id: "6ac8ddb4baf0384ec4d7163c", slug: "a-b-2026-10", status: "draft", rev: 3, i18n: { ko: { title: "가" }, en: { title: "A" } }, parties: [], period: { start: null, end: null, endKind: "tba" }, sources: [{ url: "https://x.example" }], origin: { type: "gpt", runId: "r" }, updatedAt: "2026-10-11T00:00:00.000Z" };
+  api.get("/v1/admin/collabs", (_req, res) => res.json({ data: [doc] }));
+  api.get("/v1/admin/collabs/:id", (_req, res) => res.json({ data: doc }));
+  api.get("/v1/admin/collabs/:id/duplicates", (_req, res) => res.json({ data: [] }));
+  api.patch("/v1/admin/collabs/:id", (req, res) => res.json({ data: { ...doc, ...req.body, rev: Number(req.get("if-match")) + 1 } }));
+  api.post("/v1/admin/properties/:id/merge", (req, res) => res.json({ data: { _id: req.params.id, merged: req.body.from } }));
   api.post("/v1/ingest/candidates", (req, res) => {
     res.json({ data: { runId: req.body.runId, results: [{ index: 0, status: "created", slug: "x" }], summary: { created: 1, duplicate: 0, rejected: 0 } } });
   });
@@ -42,12 +50,14 @@ beforeAll(async () => {
     PUBLIC_URL,
     API_URL: `http://127.0.0.1:${(fakeApi.address() as AddressInfo).port}`,
     INTERNAL_API_KEY: API_KEY,
+    ADMIN_API_KEY: ADMIN_KEY,
     MCP_JWT_SECRET: "mcp-secret-that-is-long-enough-for-hs256",
     GITHUB_CLIENT_ID: "gh-client",
     GITHUB_CLIENT_SECRET: "gh-secret",
     ALLOWED_GITHUB_LOGIN: "Daniel2231",
     DATA_DIR: await mkdtemp(join(tmpdir(), "mcp-test-")),
   });
+  baseCfg = cfg;
   app = createApp(cfg, { githubLogin: async (code) => (code === "good" ? loginAs : Promise.reject(new Error("bad code"))) });
 });
 
@@ -180,5 +190,65 @@ describe("tools", () => {
     });
     expect(res.body.result?.isError ?? res.body.error).toBeTruthy();
     expect(received.length).toBe(before);
+  });
+});
+
+describe("admin endpoint", () => {
+  let accessToken: string;
+  const adminRpc = (body: unknown) =>
+    request(app).post("/mcp/admin").set("authorization", `Bearer ${accessToken}`).set("accept", "application/json, text/event-stream").send(body);
+  const call = async (name: string, args: unknown) => {
+    const res = await adminRpc({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name, arguments: args } });
+    return res.body.result as { isError?: boolean; content: { text: string }[] };
+  };
+  beforeAll(async () => {
+    accessToken = (await token()).access_token;
+  });
+
+  it("has its own protected resource metadata and challenge", async () => {
+    const meta = await request(app).get("/.well-known/oauth-protected-resource/mcp/admin");
+    expect(meta.body).toMatchObject({ resource: `${PUBLIC_URL}/mcp/admin`, authorization_servers: [`${PUBLIC_URL}/`] });
+    const res = await request(app).post("/mcp/admin").send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(res.status).toBe(401);
+    expect(res.headers["www-authenticate"]).toMatch(/oauth-protected-resource\/mcp\/admin/);
+  });
+
+  it("adds the editing tools there and only there", async () => {
+    const res = await adminRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const names = res.body.result.tools.map((t: { name: string }) => t.name).sort();
+    expect(names).toEqual(
+      ["collab_history", "create_entity", "find_entity", "get_collab", "get_taxonomy", "list_collabs", "merge_entities", "mirror_cover", "search_collabs", "submit_collab_candidates", "transition_collab", "update_collab", "update_entity"].sort(),
+    );
+    const merge = res.body.result.tools.find((t: { name: string }) => t.name === "merge_entities");
+    expect(merge.annotations).toMatchObject({ destructiveHint: true });
+    const ingest = await rpc(accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+    expect(ingest.body.result.tools).toHaveLength(4);
+  });
+
+  it("calls the admin API with the admin key, defaulting the review queue and sending If-Match", async () => {
+    const list = await call("list_collabs", {});
+    expect(JSON.parse(list.content[0]!.text)[0]).toMatchObject({ slug: "a-b-2026-10", rev: 3, origin: "gpt" });
+    const listCall = received.filter((r) => r.path.startsWith("/v1/admin/collabs?")).at(-1)!;
+    expect(listCall.auth).toBe(`Bearer ${ADMIN_KEY}`);
+    expect(listCall.path).toContain("status=draft%2Cin_review");
+
+    const upd = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "2026-10-20", endKind: "tba" } } });
+    expect(upd.isError).toBeFalsy();
+    expect(JSON.parse(upd.content[0]!.text)).toMatchObject({ rev: 4, start: "2026-10-20" });
+
+    const merged = await call("merge_entities", { kind: "property", target_id: "a".repeat(24), source_id: "b".repeat(24) });
+    expect(JSON.parse(merged.content[0]!.text)).toEqual({ _id: "a".repeat(24), merged: "b".repeat(24) });
+  });
+
+  it("validates patches against the collab schema before calling the API", async () => {
+    const before = received.length;
+    const bad = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "next week" } } });
+    expect(bad.isError).toBeTruthy();
+    expect(received.length).toBe(before);
+  });
+
+  it("does not exist without an admin key", async () => {
+    const plain = createApp({ ...baseCfg, ADMIN_API_KEY: undefined });
+    expect((await request(plain).post("/mcp/admin").send({})).status).toBe(404);
   });
 });

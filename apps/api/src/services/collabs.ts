@@ -278,9 +278,11 @@ export async function createDraft(input: CollabInput, actor: Principal, opts: Cr
   return opts.session ? run(opts.session) : withTransaction(run);
 }
 
+/** By id, or by slug (admin tools and agents often only know the slug). */
 export async function getById(id: string, session?: ClientSession) {
-  if (!Types.ObjectId.isValid(id)) throw notFound("collab");
-  const doc = await Collab.findById(id, null, { session });
+  const doc = Types.ObjectId.isValid(id) && /^[a-f0-9]{24}$/i.test(id)
+    ? await Collab.findById(id, null, { session })
+    : await Collab.findOne({ slug: id }, null, { session });
   if (!doc) throw notFound("collab");
   return doc;
 }

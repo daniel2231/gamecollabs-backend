@@ -61,7 +61,7 @@ export async function adminJwt(login: string, role: "admin" | "editor" = "admin"
     .sign(new TextEncoder().encode(JWT_SECRET));
 }
 
-export async function apiToken(name: string, role: "agent" | "ingest") {
+export async function apiToken(name: string, role: "agent" | "ingest" | "admin") {
   const token = generateToken();
   await User.create({ kind: "token", name, role, tokenHash: hashToken(token), tokenPrefix: token.slice(0, 10) });
   return token;

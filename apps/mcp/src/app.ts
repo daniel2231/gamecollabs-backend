@@ -41,26 +41,44 @@ export function createApp(cfg: Config, deps: { api?: ApiClient; githubLogin?: Gi
   });
 
   // Stateless Streamable HTTP: a new server + transport per request.
-  app.post("/mcp", auth, express.json({ limit: "1mb" }), async (req, res) => {
-    const server = createMcpServer(api);
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    res.on("close", () => {
-      void transport.close();
-      void server.close();
-    });
-    try {
-      await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
-    } catch (err) {
-      logger.error({ err }, "mcp request failed");
-      if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "internal error" }, id: null });
-    }
-  });
+  const handle =
+    (admin: boolean): express.RequestHandler =>
+    async (req, res) => {
+      const server = createMcpServer(api, { admin });
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+      res.on("close", () => {
+        void transport.close();
+        void server.close();
+      });
+      try {
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+      } catch (err) {
+        logger.error({ err }, "mcp request failed");
+        if (!res.headersSent) res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: "internal error" }, id: null });
+      }
+    };
   const methodNotAllowed: express.RequestHandler = (_req, res) => {
     res.status(405).set("allow", "POST").json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed" }, id: null });
   };
+
+  // Ingest only (ChatGPT collector).
+  app.post("/mcp", auth, express.json({ limit: "1mb" }), handle(false));
   app.get("/mcp", methodNotAllowed);
   app.delete("/mcp", methodNotAllowed);
+
+  // Ingest + editing tools, for a separate connector. Same OAuth (same single GitHub account).
+  if (cfg.ADMIN_API_KEY) {
+    const adminUrl = new URL("/mcp/admin", publicUrl);
+    const adminMetadataUrl = getOAuthProtectedResourceMetadataUrl(adminUrl);
+    app.get(new URL(adminMetadataUrl).pathname, (_req, res) => {
+      res.json({ resource: adminUrl.href, authorization_servers: [publicUrl.href], scopes_supported: [SCOPE], resource_name: "Game Collab Tracker admin" });
+    });
+    const adminAuth = requireBearerAuth({ verifier: provider, requiredScopes: [SCOPE], resourceMetadataUrl: adminMetadataUrl });
+    app.post("/mcp/admin", adminAuth, express.json({ limit: "1mb" }), handle(true));
+    app.get("/mcp/admin", methodNotAllowed);
+    app.delete("/mcp/admin", methodNotAllowed);
+  }
 
   return app;
 }

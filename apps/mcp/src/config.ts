@@ -11,6 +11,12 @@ const EnvSchema = z.object({
   API_URL: z.url().default("http://api:3000"),
   /** Ingest-scoped API token. Lives only in this environment, never in tool arguments or prompts. */
   INTERNAL_API_KEY: z.string().min(10),
+  /**
+   * Admin-role API token (`cli create-token --role admin`). When set, `/mcp/admin`
+   * serves the editing tools (update, link, merge, publish) besides the ingest ones.
+   * `/mcp` stays ingest-only either way.
+   */
+  ADMIN_API_KEY: z.string().min(10).optional(),
   /** Signs OAuth access/refresh tokens issued to MCP clients. */
   MCP_JWT_SECRET: z.string().min(32),
   GITHUB_CLIENT_ID: z.string().min(1),

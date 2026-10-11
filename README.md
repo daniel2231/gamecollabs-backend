@@ -105,6 +105,25 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 - 대체 경로: `OPENAI_API_KEY`와 `OPENAI_MODEL`을 설정하면 `discover-openai` 작업이 매일 09:05 KST에 Responses API(`web_search` + JSON 스키마)를 호출해 같은 `ingestCandidates`로 넣습니다. 월 예산은 `OPENAI_MONTHLY_BUDGET_USD`로 제한합니다.
 - ChatGPT 커넥터 등록: GitHub OAuth 앱의 콜백을 `https://mcp.<도메인>/oauth/github/callback`으로 만들고, ChatGPT에 `https://mcp.<도메인>/mcp`를 추가합니다. 등록된 클라이언트는 `DATA_DIR/oauth-clients.json`에 남습니다.
 
+### 관리용 MCP (`/mcp/admin`)
+
+`deploy/.env.mcp`에 `ADMIN_API_KEY`(관리자 역할 API 토큰)를 넣으면 `https://mcp.<도메인>/mcp/admin`이 열립니다. 수집 도구 4개에 더해 운영 데이터를 고치는 도구가 붙습니다. `/mcp`(ChatGPT 수집용)는 그대로 수집 전용입니다.
+
+| 도구 | 하는 일 |
+| --- | --- |
+| `list_collabs`, `get_collab`, `collab_history` | 초안·발행본 조회(id 또는 slug), 중복 후보, 변경 이력 |
+| `update_collab` | 필드 수정 (`rev` 필수, 보낸 최상위 필드만 교체, 변경 이력에 기록) |
+| `transition_collab` | 검수 요청·발행·반려(사유 필수)·보관·복구 |
+| `create_entity`, `update_entity`, `merge_entities` | 작품·회사 생성, 이름·slug 수정, 병합(이전 slug는 리다이렉트) |
+| `mirror_cover` | 커버 이미지를 R2로 복사 |
+
+```bash
+docker compose exec api node dist/cli/index.js create-token --name mcp-admin --role admin   # 출력된 gct_ 토큰을 ADMIN_API_KEY에
+docker compose up -d mcp
+```
+
+Claude에서 쓰려면 claude.ai → 설정 → 커넥터 → 커스텀 커넥터 추가에 `https://mcp.<도메인>/mcp/admin`을 넣고 GitHub으로 로그인합니다 (같은 GitHub OAuth 앱, 같은 허용 계정 1개). 토큰을 없애려면 `revoke-token --name mcp-admin` 후 `ADMIN_API_KEY`를 비우세요.
+
 ## 주기 작업
 
 API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 같은 작업을 CLI로도 실행할 수 있습니다: `pnpm --filter @gamecollabs/api job <name>`. MongoDB 잠금으로 인스턴스가 여러 개여도 한 번만 돕니다.
@@ -146,6 +165,16 @@ pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/coll
 pnpm --filter @gamecollabs/api cli migrate-mdx --dir ../../deploy/migration/collab-tracker \
   --fields ../../deploy/migration/fields.json --mapping ../../deploy/migration/mapping.json \
   --report report.json
+```
+
+홈서버의 운영 DB에 이관할 때는 API 컨테이너 안에서 실행합니다 (호스트의 `pnpm ... cli`는 루트 `.env`의 개발 DB에 씁니다). 이관 폴더는 읽기 전용으로 붙입니다:
+
+```bash
+cd deploy
+docker compose run --rm -v "$(pwd)/migration:/app/migration:ro" api \
+  node dist/cli/index.js migrate-mdx --dir migration/collab-tracker \
+  --fields migration/fields.json --mapping migration/mapping.json \
+  --image-base-url https://<옛 블로그 도메인> --dry-run
 ```
 
 - slug 기준 upsert라 몇 번이고 다시 실행할 수 있습니다. 다만 다시 실행하면 그사이 관리자 화면에서 고친 내용도 원본 값으로 덮어씁니다.

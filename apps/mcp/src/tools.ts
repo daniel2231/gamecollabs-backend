@@ -1,8 +1,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { IngestCandidate, IsoDate, MAX_CANDIDATES_PER_CALL } from "@gamecollabs/schema";
-import { ApiError, type ApiClient, type TaxonomyNode } from "./apiClient.js";
+import {
+  COLLAB_STATUSES,
+  CollabPatch,
+  CompanyInput,
+  CompanyPatch,
+  IngestCandidate,
+  IsoDate,
+  MAX_CANDIDATES_PER_CALL,
+  ORIGIN_TYPES,
+  PropertyInput,
+  PropertyPatch,
+  TRANSITION_ACTIONS,
+} from "@gamecollabs/schema";
+import { ApiError, type AdminCollab, type ApiClient, type TaxonomyNode } from "./apiClient.js";
 import { logger } from "./logger.js";
 
 const INSTRUCTIONS = `Game × IP collab tracker (public sources, human-reviewed).
@@ -38,9 +50,43 @@ export function dailyRunId(client: string, now = new Date()): string {
 
 type Ctx = { authInfo?: { extra?: Record<string, unknown>; clientId?: string } };
 
-/** Builds a fresh MCP server (stateless transport: one per request). */
-export function createMcpServer(api: ApiClient): McpServer {
-  const server = new McpServer({ name: "gamecollabs-ingest", version: "1.0.0" }, { instructions: INSTRUCTIONS });
+const ADMIN_INSTRUCTIONS = `${INSTRUCTIONS}
+
+Admin tools (editing the live tracker): list_collabs / get_collab to read drafts and published
+collabs (by id or slug); update_collab to fix fields (pass the rev from get_collab; each top-level
+field you send replaces the stored one, so send complete i18n / sources / parties / companies
+arrays); transition_collab to submit, publish, reject (reason required), archive or reopen;
+find_entity, create_entity, update_entity and merge_entities for games/IPs/companies. Every change
+is recorded in the collab history (collab_history) and can be undone by editing again. Only change
+what a public source supports, and publish only complete collabs (ko/en text, linked parties,
+category, start date, sources).`;
+
+/** Compact row for lists: enough to pick what to open with get_collab. */
+function row(c: AdminCollab) {
+  return {
+    id: c.id,
+    slug: c.slug,
+    status: c.status,
+    rev: c.rev,
+    title: { ko: c.i18n?.ko?.title, en: c.i18n?.en?.title },
+    start: c.period?.start?.slice(0, 10) ?? null,
+    end: c.period?.end?.slice(0, 10) ?? null,
+    endKind: c.period?.endKind,
+    parties: c.parties?.map((p) => ({ role: p.role, slug: p.slug, linked: !!p.propertyId, name: p.name?.en ?? p.name?.ko ?? null })),
+    sources: c.sources?.length ?? 0,
+    origin: c.origin?.type,
+    duplicateCount: c.duplicateCount ?? 0,
+    updatedAt: c.updatedAt,
+  };
+}
+
+/** Builds a fresh MCP server (stateless transport: one per request). `admin` adds the editing tools. */
+export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}): McpServer {
+  const admin = !!opts.admin && api.hasAdmin;
+  const server = new McpServer(
+    { name: admin ? "gamecollabs-admin" : "gamecollabs-ingest", version: "1.1.0" },
+    { instructions: admin ? ADMIN_INSTRUCTIONS : INSTRUCTIONS },
+  );
 
   /** Every tool call is logged (tool, account, duration, outcome). */
   const logged = async (tool: string, args: unknown, ctx: Ctx, fn: () => Promise<CallToolResult>): Promise<CallToolResult> => {
@@ -115,5 +161,142 @@ export function createMcpServer(api: ApiClient): McpServer {
       ),
   );
 
+  if (admin) registerAdminTools(server, api, logged);
   return server;
+}
+
+type Logged = (tool: string, args: unknown, ctx: Ctx, fn: () => Promise<CallToolResult>) => Promise<CallToolResult>;
+
+const IdOrSlug = z.string().trim().min(1).max(200).describe("Collab id (24 hex) or slug");
+const Kind = z.enum(["property", "company"]).describe("property = game/IP, company = company");
+const EntityId = z.string().regex(/^[a-f0-9]{24}$/).describe("Entity id from find_entity");
+
+function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
+  const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+
+  server.registerTool(
+    "list_collabs",
+    {
+      title: "List collabs (admin)",
+      description: "Lists collabs of any status, newest change first: drafts waiting for review, published ones, etc. Returns compact rows (id, slug, status, rev, titles, dates, parties, duplicate count).",
+      inputSchema: {
+        status: z.array(z.enum(COLLAB_STATUSES)).optional().describe("Default: draft and in_review"),
+        origin: z.array(z.enum(ORIGIN_TYPES)).optional(),
+        query: z.string().trim().max(100).optional().describe("Search in titles and names"),
+        limit: z.number().int().min(1).max(100).default(50),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) =>
+      logged("list_collabs", args, ctx, async () => {
+        const rows = await api.listCollabs({
+          status: (args.status ?? ["draft", "in_review"]).join(","),
+          origin: args.origin?.join(","),
+          q: args.query,
+          limit: args.limit,
+        });
+        return json(rows.map(row));
+      }),
+  );
+
+  server.registerTool(
+    "get_collab",
+    {
+      title: "Get a collab (admin)",
+      description: "Full stored document of one collab (any status) with its current rev, plus duplicate candidates. Call this before update_collab or transition_collab.",
+      inputSchema: { id_or_slug: IdOrSlug },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) =>
+      logged("get_collab", args, ctx, async () => {
+        const [collab, duplicates] = await Promise.all([api.getCollab(args.id_or_slug), api.collabDuplicates(args.id_or_slug)]);
+        return json({ collab, duplicates });
+      }),
+  );
+
+  server.registerTool(
+    "update_collab",
+    {
+      title: "Update a collab (admin)",
+      description:
+        "Changes fields of a collab. Each top-level field in `patch` replaces the stored value (send the whole i18n object with ko and en, the whole sources/parties/companies arrays). Parties link games/IPs with { propertyId, role: host|partner }. Dates: YYYY-MM-DD or YYYY-MM; period.endKind fixed|permanent|tba. `rev` must be the current rev from get_collab (a stale rev is refused).",
+      inputSchema: { id_or_slug: IdOrSlug, rev: z.number().int().min(1), patch: CollabPatch },
+      annotations: { ...write, idempotentHint: true },
+    },
+    (args, ctx) => logged("update_collab", args, ctx, async () => json(row(await api.updateCollab(args.id_or_slug, args.rev, args.patch)))),
+  );
+
+  server.registerTool(
+    "transition_collab",
+    {
+      title: "Change collab status (admin)",
+      description: "submit (draft → in_review), publish (makes it public; it must be complete), reject (back to draft, reason required), archive (hide), reopen (archived → draft).",
+      inputSchema: {
+        id_or_slug: IdOrSlug,
+        action: z.enum(TRANSITION_ACTIONS),
+        reason: z.string().trim().max(1000).optional(),
+        rev: z.number().int().min(1).optional().describe("Current rev; refused if it changed meanwhile"),
+      },
+      annotations: write,
+    },
+    (args, ctx) =>
+      logged("transition_collab", args, ctx, async () =>
+        json(row(await api.transitionCollab(args.id_or_slug, { action: args.action, ...(args.reason ? { reason: args.reason } : {}) }, args.rev))),
+      ),
+  );
+
+  server.registerTool(
+    "collab_history",
+    {
+      title: "Collab change history (admin)",
+      description: "Revisions of a collab (who changed what, newest first). Use it to review or undo a change.",
+      inputSchema: { id_or_slug: IdOrSlug },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) => logged("collab_history", args, ctx, async () => json(await api.collabRevisions(args.id_or_slug))),
+  );
+
+  server.registerTool(
+    "mirror_cover",
+    {
+      title: "Mirror a collab cover (admin)",
+      description: "Copies the collab's cover image (cover.originalUrl, set with update_collab) to the tracker's own storage so it keeps working if the source removes it.",
+      inputSchema: { id_or_slug: IdOrSlug },
+      annotations: { ...write, idempotentHint: true },
+    },
+    (args, ctx) => logged("mirror_cover", args, ctx, async () => json(await api.mirrorCover(args.id_or_slug))),
+  );
+
+  server.registerTool(
+    "create_entity",
+    {
+      title: "Create a game/IP or company (admin)",
+      description: "Creates a property (game/IP: slug, kind = partner_category key, name {ko,en,original?}, aliases) or a company (slug, name, aliases, country). Check find_entity first to avoid duplicates.",
+      inputSchema: { kind: Kind, data: z.union([PropertyInput, CompanyInput]) },
+      annotations: write,
+    },
+    (args, ctx) => logged("create_entity", args, ctx, async () => json(await api.createEntity(args.kind, args.data))),
+  );
+
+  server.registerTool(
+    "update_entity",
+    {
+      title: "Update a game/IP or company (admin)",
+      description: "Renames or edits a property or company (fields given replace stored ones). A slug change keeps the old slug as a redirect; collabs referencing it are updated.",
+      inputSchema: { kind: Kind, id: EntityId, patch: z.union([PropertyPatch, CompanyPatch]) },
+      annotations: { ...write, idempotentHint: true },
+    },
+    (args, ctx) => logged("update_entity", args, ctx, async () => json(await api.updateEntity(args.kind, args.id, args.patch))),
+  );
+
+  server.registerTool(
+    "merge_entities",
+    {
+      title: "Merge duplicate games/IPs or companies (admin)",
+      description: "Merges `source_id` into `target_id`: collabs move to the target, the source's names become aliases and its slug redirects to the target. The source entry is deleted.",
+      inputSchema: { kind: Kind, target_id: EntityId, source_id: EntityId },
+      annotations: { ...write, destructiveHint: true },
+    },
+    (args, ctx) => logged("merge_entities", args, ctx, async () => json(await api.mergeEntities(args.kind, args.target_id, args.source_id))),
+  );
 }
