@@ -12,7 +12,10 @@ submit_collab_candidates (max ${MAX_CANDIDATES_PER_CALL} per call). Submissions 
 and published only after a person reviews them. Every candidate needs a title and a summary
 in both Korean and English, and at least one public source URL; never invent dates or
 details that the source does not state. When the start date has not been announced, leave
-period.start out: the candidate is still stored as a draft for review.`;
+period.start out: the candidate is still stored as a draft for review.
+Always give game.names and partner.names (official Korean and English names, plus the
+original-script name when it differs): if find_entity finds nothing, the server creates the
+game/IP from them so the draft is linked; use the slug from find_entity when it does find one.`;
 
 function json(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -101,7 +104,7 @@ export function createMcpServer(api: ApiClient): McpServer {
     "submit_collab_candidates",
     {
       title: "Submit collab candidates",
-      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one). Returns created / duplicate / rejected per candidate with reasons.`,
+      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one). Give game.names / partner.names ({ ko, en, original? }) so a game or IP that is not in the tracker yet is created and linked. Returns created / duplicate / rejected per candidate with reasons.`,
       inputSchema: { candidates: z.array(IngestCandidate).min(1).max(MAX_CANDIDATES_PER_CALL) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

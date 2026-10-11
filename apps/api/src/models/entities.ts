@@ -34,6 +34,8 @@ const propertySchema = new Schema(
     kind: { type: String, required: true },
     parentId: { type: Schema.Types.ObjectId, ref: "Property", default: null },
     officialUrl: { type: String, default: null },
+    /** Ingest run that created this entry automatically (null when a person created it). */
+    createdByRun: { type: String, default: null },
   },
   { timestamps: true, collection: "properties" },
 );

@@ -105,6 +105,54 @@ describe("ingest", () => {
     expect(again.body.data.results[0]).toMatchObject({ status: "duplicate", reasons: [{ code: "same_parties_and_date" }] });
   });
 
+  it("creates games and IPs that are not in the tracker yet, from their official names", async () => {
+    const kof = candidate({
+      title: { ko: "킹 오브 파이터즈'98 UM 온라인 × 단다단", en: "The King of Fighters '98 UM Online x Dan Da Dan" },
+      game: { name: "KOF98UM OL", names: { ko: "킹 오브 파이터즈'98 UM 온라인", en: "The King of Fighters '98 Ultimate Match Online" } },
+      partner: { name: "Dandadan", kind: "Anime / Manga", names: { ko: "단다단", en: "Dan Da Dan", original: "ダンダダン" } },
+      companies: [],
+      sources: [{ url: "https://x.com/kof98umol/status/2101118600136265786" }],
+    });
+    const res = await as(ingest).post("/v1/ingest/candidates").send({ client: "chatgpt-mcp", runId: "run-new", candidates: [kof] });
+    const [r] = res.body.data.results;
+    expect(r.status).toBe("created");
+    expect(r.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/created game/), expect.stringMatching(/created partner "dan-da-dan"/)]));
+    const doc = await Collab.findById(r.id).lean();
+    expect(doc!.parties.every((p) => p.propertyId)).toBe(true);
+    expect(doc!.parties[1]).toMatchObject({ slug: "dan-da-dan", kind: "partner_category.anime_manga", name: { ko: "단다단", en: "Dan Da Dan" } });
+    const dandadan = await Property.findOne({ slug: "dan-da-dan" }).lean();
+    // "Dandadan" normalizes to the same key as "Dan Da Dan", so it is not stored again as an alias.
+    expect(dandadan).toMatchObject({ createdByRun: "run-new", name: { original: "ダンダダン" }, aliases: [] });
+    const game = await Property.findById(doc!.parties[0]!.propertyId).lean();
+    expect(game).toMatchObject({ kind: "partner_category.game", aliases: ["KOF98UM OL"] });
+
+    // The next candidate naming them (by any name or alias) links to the same entries.
+    const again = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({ client: "chatgpt-mcp", candidates: [{ ...kof, game: { name: "KOF98UM OL" }, partner: { name: "ダンダダン" }, sources: [{ url: "https://news.example.com/kof-ddd" }], period: { start: "2027-05-01" } }] });
+    expect(again.body.data.results[0].status).toBe("created");
+    const second = await Collab.findById(again.body.data.results[0].id).lean();
+    expect(second!.parties.map((p) => p.propertyId!.toString())).toEqual(doc!.parties.map((p) => p.propertyId!.toString()));
+    expect(await Property.countDocuments({ createdByRun: "run-new" })).toBe(2);
+  });
+
+  it("keeps a bare name when the official names are not given, and creates nothing for duplicates", async () => {
+    const res = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({ client: "chatgpt-mcp", candidates: [candidate({ partner: { name: "Some New IP" }, sources: [{ url: "https://news.example.com/bare" }] })] });
+    const [r] = res.body.data.results;
+    expect(r.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/partner "Some New IP" is not linked/)]));
+    const doc = await Collab.findById(r.id).lean();
+    expect(doc!.parties[1]).toMatchObject({ propertyId: null, name: { ko: "Some New IP" } });
+
+    const before = await Property.countDocuments();
+    const dup = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({ client: "chatgpt-mcp", candidates: [candidate({ partner: { name: "Other IP", names: { ko: "다른 IP", en: "Other IP" } }, sources: [{ url: "https://news.example.com/bare" }] })] });
+    expect(dup.body.data.results[0].status).toBe("duplicate");
+    expect(await Property.countDocuments()).toBe(before);
+  });
+
   it("rejects candidates missing either language", async () => {
     const res = await as(ingest)
       .post("/v1/ingest/candidates")

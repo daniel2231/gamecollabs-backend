@@ -9,14 +9,21 @@ const Name = z.string().trim().min(1).max(200);
 const TaxonomyValue = z.string().trim().min(1).max(80);
 
 /**
+ * Official Korean and English names (and the original-script name, e.g. Japanese).
+ * When no existing game/IP matches, the server creates one from these so the
+ * draft is linked; without them the party is kept as a bare name for the reviewer.
+ */
+const EntityNames = z.object({ ko: Name, en: Name, original: Name.nullish() });
+
+/**
  * One collab found by an automated collector (GPT, agents). Names and
  * classification values are free text; the server resolves them.
  */
 export const IngestCandidate = z.object({
     title: z.object({ ko: Name, en: Name }),
     summary: z.object({ ko: z.string().trim().min(1).max(4000), en: z.string().trim().min(1).max(4000) }),
-    game: z.object({ name: Name, slug: Slug.nullish() }),
-    partner: z.object({ name: Name, slug: Slug.nullish(), kind: TaxonomyValue.nullish() }),
+    game: z.object({ name: Name, slug: Slug.nullish(), names: EntityNames.nullish() }),
+    partner: z.object({ name: Name, slug: Slug.nullish(), kind: TaxonomyValue.nullish(), names: EntityNames.nullish() }),
     companies: z.array(z.object({ name: Name, role: CompanyRole.default("unspecified") })).max(10).default([]),
     category: TaxonomyValue.nullish(),
     regions: z.array(TaxonomyValue).max(20).default([]),

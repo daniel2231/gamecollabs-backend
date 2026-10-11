@@ -13,7 +13,8 @@ Today is {{TODAY}}.
 3. For each collab you find:
    - call `search_collabs` with the game and the partner name (and a start-date window)
      to see whether it is already tracked; skip it if it is;
-   - call `find_entity` for the game and the partner to reuse their canonical slug and name.
+   - call `find_entity` for the game and the partner to reuse their canonical slug and name;
+     when it finds nothing, still send `names` (below) and the server creates the game/IP.
 4. Submit only new collabs with `submit_collab_candidates` (at most 20 per call).
 
 ## Rules
@@ -28,6 +29,10 @@ Today is {{TODAY}}.
 - Korean and English are both required for `title` and `summary`; a candidate missing either is rejected.
 - `title`: "<게임> × <파트너>" in Korean and "<Game> x <Partner>" in English, using the official
   Korean and English names (check `find_entity` first).
+- `game.names` and `partner.names`: always `{ "ko": …, "en": … }` with the official Korean and
+  English names (add `"original"` for the Japanese/Chinese original title). A new game or IP is
+  created from these, so use the official spelling, not a translation of your own. Set
+  `partner.kind` (anime, film/TV, music, VTuber, webtoon, character, food & beverage, game …).
 - `summary`: 1–3 neutral sentences on what the collab adds (items, characters, events, period),
   written in both Korean (`summary.ko`) and English (`summary.en`).
 - No sales, revenue or player-count estimates. No rumours or leaks.

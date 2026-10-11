@@ -15,7 +15,7 @@ import type { Principal } from "../auth/principal.js";
 import { notify } from "../lib/outbound.js";
 import { parseDateInput } from "../lib/period.js";
 import { checkUrl, isReachable } from "../lib/safeFetch.js";
-import { nameKey } from "../lib/text.js";
+import { nameKey, slugify } from "../lib/text.js";
 import { normalizeUrl } from "../lib/url.js";
 import { search } from "../search/provider.js";
 import { createDraft, findDuplicates } from "./collabs.js";
@@ -35,17 +35,36 @@ async function createdToday(now = new Date()): Promise<number> {
   return Collab.countDocuments({ "origin.runId": { $ne: null }, createdAt: { $gte: startOfKstDay(now) } });
 }
 
-async function findEntity(model: typeof Property | typeof Company, name: string, slug?: string | null) {
+/** By slug first, then by any of the given names; ambiguous exact matches are left for the reviewer. */
+async function findEntity(model: typeof Property | typeof Company, names: (string | null | undefined)[], slug?: string | null) {
   const m = model as typeof Property;
   if (slug) {
     const bySlug = await m.findOne({ $or: [{ slug }, { formerSlugs: slug }] }).lean();
     if (bySlug) return bySlug;
   }
-  const key = nameKey(name);
-  if (!key) return null;
-  const matches = await m.find({ nameKeys: key }).limit(2).lean();
-  // Ambiguous exact matches are left for the reviewer.
-  return matches.length === 1 ? matches[0]! : null;
+  for (const key of new Set(names.map((n) => (n ? nameKey(n) : "")).filter(Boolean))) {
+    const matches = await m.find({ nameKeys: key }).limit(2).lean();
+    if (matches.length === 1) return matches[0]!;
+  }
+  return null;
+}
+
+type Side = IngestCandidate["game"];
+
+/**
+ * Creates the game/IP a candidate names when nothing matched, so the draft is
+ * linked instead of carrying a bare name. Needs the official ko/en names;
+ * marked with the run id so the reviewer can find (and merge) it later.
+ */
+async function createMissingProperty(side: Side, kind: string, runId: string) {
+  if (!side.names) return null;
+  const { ko, en, original } = side.names;
+  const base = slugify(side.slug ?? en) || slugify(side.name) || "property";
+  let slug = base;
+  for (let i = 2; await Property.exists({ $or: [{ slug }, { formerSlugs: slug }] }); i++) slug = `${base}-${i}`;
+  const aliases = [side.name].filter((n) => ![ko, en, original].some((x) => x && nameKey(x) === nameKey(n)));
+  const doc = await Property.create({ slug, kind, name: { ko, en, original: original ?? null }, aliases, createdByRun: runId });
+  return doc.toObject();
 }
 
 type Unmapped = Record<string, string[]>;
@@ -82,10 +101,9 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
   let sourceUrls = [...new Set(c.sources.map((s) => normalizeUrl(s.url)))];
 
   // 2. Entities.
-  const game = await findEntity(Property, c.game.name, c.game.slug);
-  const partner = await findEntity(Property, c.partner.name, c.partner.slug);
-  if (!game) warnings.push(`game "${c.game.name}" is not linked to a property yet`);
-  if (!partner) warnings.push(`partner "${c.partner.name}" is not linked to a property yet`);
+  const sideNames = (side: Side) => [side.name, side.names?.ko, side.names?.en, side.names?.original];
+  let game = await findEntity(Property, sideNames(c.game), c.game.slug);
+  let partner = await findEntity(Property, sideNames(c.partner), c.partner.slug);
 
   // 3. Duplicates (server decides; the client's own check is not trusted).
   let start: Date | null = null;
@@ -133,9 +151,20 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
   partnerKind ??= partner?.kind ?? null;
   const gameKind = game?.kind ?? tax.map("partner_category", "game");
 
+  // Link or create the game and the partner (only now, so duplicates and rejected candidates create nothing).
+  if (!game) {
+    game = await createMissingProperty(c.game, gameKind ?? "partner_category.game", ctx.runId);
+    warnings.push(game ? `created game "${game.slug}" (new, check it in the entity list)` : `game "${c.game.name}" is not linked: send game.names.ko/en to create it`);
+  }
+  if (!partner) {
+    partner = await createMissingProperty(c.partner, partnerKind ?? "partner_category.other", ctx.runId);
+    partnerKind ??= partner?.kind ?? null;
+    warnings.push(partner ? `created partner "${partner.slug}" (new, check it in the entity list)` : `partner "${c.partner.name}" is not linked: send partner.names.ko/en to create it`);
+  }
+
   const companies: CollabInput["companies"] = [];
   for (const co of c.companies) {
-    const company = await findEntity(Company, co.name);
+    const company = await findEntity(Company, [co.name]);
     if (company) companies.push({ companyId: company._id.toString(), role: co.role });
     else (unmapped.companies ??= []).push(`${co.name} (${co.role})`);
   }
