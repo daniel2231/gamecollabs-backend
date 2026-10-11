@@ -1,7 +1,7 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import matter from "gray-matter";
-import type { Taxonomy } from "@gamecollabs/schema";
+import { COMPANY_ROLES, type CompanyRole, type Taxonomy } from "@gamecollabs/schema";
 import { withTransaction } from "../db.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
@@ -29,6 +29,8 @@ export const DEFAULT_FIELDS = {
   /** English company names, with Korean names at the same positions in `companiesKo`. */
   companies: "companies",
   companiesKo: "companies_ko",
+  /** Role of each company, same positions as `companies` (publisher, developer, licensor, brand_partner, organizer). */
+  companyRoles: "company_roles",
   status: "status",
   category: "category",
   partnerCategory: "partner_category",
@@ -153,7 +155,7 @@ export async function migrateMdx(opts: MigrateOptions) {
     slug: string;
     game: Names;
     ip: Names;
-    companies: Names[];
+    companies: (Names & { role: CompanyRole })[];
     partnerKind: string | null;
     keys: Record<string, string[]>;
     /** Imported as a draft because the publish rules would refuse it. */
@@ -181,6 +183,10 @@ export async function migrateMdx(opts: MigrateOptions) {
     if (!ipEn) missing(f.ip);
     if (!ipKo) missing(f.ipKo);
     if (companiesEn.length !== companiesKo.length) problems.push(`${item.file}: ${f.companies} and ${f.companiesKo} must list the same companies`);
+    const companyRoles = arr(d[f.companyRoles]);
+    if (companyRoles.length && companyRoles.length !== companiesEn.length) problems.push(`${item.file}: ${f.companyRoles} must have one role per company`);
+    const badRole = companyRoles.find((r) => !(COMPANY_ROLES as readonly string[]).includes(r));
+    if (badRole) problems.push(`${item.file}: unknown company role "${badRole}" (use ${COMPANY_ROLES.join(", ")})`);
     const image = imageUrl(str(d[f.image]));
     if ("error" in image) problems.push(`${item.file}: ${image.error}`);
     if (!str(d[f.summaryKo])) missing(f.summaryKo);
@@ -199,7 +205,7 @@ export async function migrateMdx(opts: MigrateOptions) {
     };
     const game = { en: canonical(gameEn!), ko: gameKo! };
     const ip = { en: canonical(ipEn!), ko: ipKo! };
-    const companies = companiesEn.map((en, i) => ({ en: canonical(en), ko: companiesKo[i]! }));
+    const companies = companiesEn.map((en, i) => ({ en: canonical(en), ko: companiesKo[i]!, role: (companyRoles[i] ?? "unspecified") as CompanyRole }));
     // Anything the publish rules would refuse comes in as a draft for the editor to finish.
     const missingForPublish = [!dateStr(d[f.start]) && f.start, !keys.category[0] && f.category].filter(Boolean);
     const draft = str(d[f.status]) !== "archived" && missingForPublish.length > 0;
@@ -295,7 +301,7 @@ export async function migrateMdx(opts: MigrateOptions) {
       ],
       companies: p.companies.map((names) => {
         const c = companyIds.get(nameKey(names.en))!;
-        return { companyId: c!._id, slug: c!.slug, role: "unspecified", name: snapshotName(c!.name) };
+        return { companyId: c!._id, slug: c!.slug, role: names.role, name: snapshotName(c!.name) };
       }),
       category,
       regions: p.keys.regions,

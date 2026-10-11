@@ -334,7 +334,10 @@ describe("MDX migration", () => {
       `---\nid: ${id}\ntitle: 게임 × 아이피\ntitle_en: Game x IP\ngame_title: Game\ngame_title_ko: 게임\nip_title: IP\nip_title_ko: 아이피\n` +
       `summary_ko: 요약\nsummary_en: Summary\ncategory: In-Game\npartner_category: [Comics]\nstart_date: 2026-01-01\n` +
       `source_url: https://official.example.com/${id}\n${extra}---\n`;
-    await writeFile(join(tmp, "a.mdx"), file("kind-permanent", "end_kind: permanent\nextra_sources:\n  - https://news.example.com/a\n"));
+    await writeFile(
+      join(tmp, "a.mdx"),
+      file("kind-permanent", "end_kind: permanent\nextra_sources:\n  - https://news.example.com/a\ncompanies: [Roleco, Brandco]\ncompanies_ko: [롤코, 브랜드코]\ncompany_roles: [developer, brand_partner]\n"),
+    );
     await writeFile(join(tmp, "b.mdx"), file("kind-default", ""));
     await migrateMdx({ dir: tmp, dryRun: false, allowUnmapped: false });
     const a = await Collab.findOne({ slug: "kind-permanent" }).lean();
@@ -343,7 +346,14 @@ describe("MDX migration", () => {
       ["https://official.example.com/kind-permanent", true],
       ["https://news.example.com/a", false],
     ]);
+    expect(a!.companies.map((c) => [c.slug, c.role])).toEqual([
+      ["roleco", "developer"],
+      ["brandco", "brand_partner"],
+    ]);
     expect((await Collab.findOne({ slug: "kind-default" }).lean())!.period.endKind).toBe("tba");
+    await writeFile(join(tmp, "b.mdx"), file("kind-default", "companies: [Roleco]\ncompanies_ko: [롤코]\ncompany_roles: [boss]\n"));
+    const bad = await migrateMdx({ dir: tmp, dryRun: true, allowUnmapped: false });
+    expect(bad.problems).toEqual(expect.arrayContaining([expect.stringMatching(/unknown company role "boss"/)]));
     await Collab.deleteMany({ slug: { $in: ["kind-permanent", "kind-default"] } });
   });
 

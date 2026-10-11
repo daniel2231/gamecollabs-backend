@@ -28,7 +28,9 @@ period.start out: the candidate is still stored as a draft for review.
 Always give game.names, partner.names and companies[].names (official Korean and English
 names, plus the original-script name when it differs; for companies also country as ISO
 alpha-2): if find_entity finds nothing, the server creates the game/IP/company from them so
-the draft is linked; use the slug from find_entity when it does find one.`;
+the draft is linked; use the slug from find_entity when it does find one. Give every company its
+role: developer (makes the game), publisher (publishes/operates it), licensor (owns the partner IP),
+brand_partner (brand, food & beverage, retail), organizer (venue or event operator).`;
 
 function json(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };

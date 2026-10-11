@@ -181,6 +181,7 @@ docker compose run --rm -v "$(pwd)/migration:/app/migration:ro" api \
 - 다시 실행해도 이미 있는 작품·회사의 이름은 바꾸지 않습니다. 파일에서 표기를 고쳤다면(`Sega` → `SEGA`) `--update-names`를 붙이면 파일의 한·영 표기로 바뀌고 이전 표기는 별칭으로 남습니다. 이름 자체가 바뀐 경우(다른 이름 키)는 새 항목이 생기므로, 이전 항목을 관리자 화면에서 새 항목으로 병합하세요(이전 slug는 리다이렉트로 유지).
 - 판정되지 않은 값(`problems`, `unmapped`)이 남아 있거나 대조 리포트에 누락이 있으면 종료 코드 1입니다 (M0/M1 게이트). `warnings`는 이관을 막지 않습니다.
 - `active`/`ongoing`/`upcoming` → `published`. 단, 발행 조건을 못 채우는 항목(시작일이나 카테고리 없음)은 `draft`로 들어오고 `warnings`에 나옵니다.
+- `company_roles`(목록, `companies`와 같은 순서): 회사별 역할(`developer`, `publisher`, `licensor`, `brand_partner`, `organizer`). 없으면 `unspecified`.
 - `source_url` → `sources[0]`(primary), `extra_sources`(목록) → 나머지 출처. 종료일이 없는 항목은 `end_kind`(`permanent`/`tba`)를 따르고, 없으면 `endKind: "tba"`. `note`와 `tags`는 내부 메모(`origin.notes`)로 남깁니다(공개되지 않음).
 - `partner_category`가 여러 개면 첫 번째만 쓰고 `warnings`에 남깁니다.
 - `image`가 `/blog/uploads/...`처럼 옛 블로그의 경로면 `--image-base-url https://<블로그 도메인>`으로 전체 주소로 바꿔 저장합니다(없으면 `problems`). 이미 R2로 복사된 커버는 이미지가 그대로면 다시 실행해도 유지됩니다.
