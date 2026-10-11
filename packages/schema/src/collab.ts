@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Bilingual, CsvList, HttpUrl, IsoDate, IsoDateOrMonth, Locale, ObjectIdString, Slug } from "./common.js";
+import { Bilingual, CsvList, HttpUrl, IsoDate, IsoDateOrMonth, Locale, ObjectIdString, Slug, patchOf } from "./common.js";
 import { TaxonomyKey, keyOf } from "./taxonomy.js";
 
 export const COLLAB_STATUSES = ["draft", "in_review", "published", "archived"] as const;
@@ -120,7 +120,7 @@ export const CollabInput = z.object({
 export type CollabInput = z.infer<typeof CollabInput>;
 
 /** PATCH body: each present top-level field replaces the stored value. */
-export const CollabPatch = CollabInput.partial().extend({
+export const CollabPatch = patchOf(CollabInput).extend({
   sources: z.array(SourceInput).min(1).max(20).optional(),
 });
 export type CollabPatch = z.infer<typeof CollabPatch>;

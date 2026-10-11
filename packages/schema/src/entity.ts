@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EntityName, HttpUrl, ObjectIdString, Slug } from "./common.js";
+import { EntityName, HttpUrl, ObjectIdString, Slug, patchOf } from "./common.js";
 import { keyOf } from "./taxonomy.js";
 
 const Aliases = z.array(z.string().trim().min(1).max(200)).max(50);
@@ -14,7 +14,7 @@ export const PropertyInput = z.object({
 });
 export type PropertyInput = z.infer<typeof PropertyInput>;
 
-export const PropertyPatch = PropertyInput.partial();
+export const PropertyPatch = patchOf(PropertyInput);
 export type PropertyPatch = z.infer<typeof PropertyPatch>;
 
 export const CompanyInput = z.object({
@@ -29,7 +29,7 @@ export const CompanyInput = z.object({
 });
 export type CompanyInput = z.infer<typeof CompanyInput>;
 
-export const CompanyPatch = CompanyInput.partial();
+export const CompanyPatch = patchOf(CompanyInput);
 export type CompanyPatch = z.infer<typeof CompanyPatch>;
 
 /** `POST /v1/admin/{properties|companies}/:id/merge`: `from` is absorbed into `:id`. */

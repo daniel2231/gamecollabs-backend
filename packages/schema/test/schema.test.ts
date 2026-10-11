@@ -55,3 +55,13 @@ describe("shared schemas", () => {
     expect(TransitionInput.safeParse({ action: "reject", reason: "dup" }).success).toBe(true);
   });
 });
+
+describe("patch schemas", () => {
+  it("do not fill in defaults for fields that are not sent", async () => {
+    const { CollabPatch, PropertyPatch, CompanyPatch } = await import("../src/index.js");
+    expect(CollabPatch.parse({ companies: [] })).toEqual({ companies: [] });
+    expect(PropertyPatch.parse({ slug: "x" })).toEqual({ slug: "x" });
+    expect(CompanyPatch.parse({ country: "JP" })).toEqual({ country: "JP" });
+    expect(CollabPatch.safeParse({ period: { start: "soon" } }).success).toBe(false);
+  });
+});

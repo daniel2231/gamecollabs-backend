@@ -58,3 +58,15 @@ export const CsvList = z
       .map((s) => s.trim())
       .filter(Boolean),
   );
+
+/**
+ * PATCH body for an input object: every top-level field optional and, unlike `.partial()`,
+ * without the input's defaults, so a field that is not sent stays untouched instead of
+ * being reset (e.g. `parties: []`).
+ */
+export function patchOf<T extends z.ZodRawShape>(schema: z.ZodObject<T>) {
+  const shape = Object.fromEntries(
+    Object.entries(schema.shape).map(([key, field]) => [key, (field instanceof z.ZodDefault ? (field.unwrap() as z.ZodType) : (field as z.ZodType)).optional()]),
+  );
+  return z.object(shape) as unknown as ReturnType<z.ZodObject<T>["partial"]>;
+}

@@ -146,6 +146,14 @@ describe("collab workflow", () => {
     const patched = await as(adminToken).patch("/v1/admin/collabs/by-slug-check").set("if-match", "1").send({ category: "category.brand_campaign" });
     expect(patched.status).toBe(200);
     expect(patched.body.data.rev).toBe(2);
+    // A partial PATCH leaves every field it does not send untouched.
+    expect(patched.body.data.parties).toHaveLength(2);
+    expect(patched.body.data.sources).toHaveLength(1);
+    expect(patched.body.data.period.start).toBe(created.body.data.period.start);
+    const aliasesBefore = (await Property.findById(e.aot.id).lean())!.aliases;
+    expect(aliasesBefore.length).toBeGreaterThan(0);
+    await as(adminToken).patch(`/v1/admin/properties/${e.aot.id}`).send({ name: { ko: "진격의 거인", en: "Attack on Titan", original: "進撃の巨人" } });
+    expect((await Property.findById(e.aot.id).lean())!.aliases).toEqual(aliasesBefore);
     expect((await as(adminToken).get("/v1/admin/collabs/no-such-slug")).status).toBe(404);
     expect((await as(adminToken).post("/v1/admin/taxonomies").send({ key: "platform.mcp_check", label: { ko: "검사", en: "Check" } })).status).toBe(201);
   });
