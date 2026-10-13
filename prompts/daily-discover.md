@@ -38,6 +38,9 @@ Today is {{TODAY}}.
   IP owner, `brand_partner` for brands/F&B/retail, `organizer` for venues and event operators; never
   leave it out), `names` (`{ ko, en, original? }`,
   official spelling) and `country` (ISO code, e.g. `JP`). New companies are created from these.
+- `venues` (offline collabs only: cafés, pop-up stores, events, shop campaigns): each venue with
+  `name` `{ ko, en }`, `address` exactly as the source writes it, and `url` if there is a venue page.
+  For chain-wide campaigns list the chain once (e.g. "All Karaoke Manekineko stores") instead of every shop.
 - `summary`: 1–3 neutral sentences on what the collab adds (items, characters, events, period),
   written in both Korean (`summary.ko`) and English (`summary.en`).
 - No sales, revenue or player-count estimates. No rumours or leaks.

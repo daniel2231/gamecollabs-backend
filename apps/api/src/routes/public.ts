@@ -65,22 +65,42 @@ publicRouter.get("/companies/:slug", async (req, res) => {
   res.json({ data: await entityPage("company", String(req.params.slug), locale) });
 });
 
-/** Published collabs and the entities that appear in them, for the web sitemap. */
+/**
+ * Published collabs and the entities that appear in them, for the web sitemap.
+ * An entity page shows its collabs, so its `updatedAt` is the later of the entity's
+ * own change and the newest change among its published collabs.
+ */
 publicRouter.get("/sitemap", async (_req, res) => {
-  const [collabs, propertyIds, companyIds] = await Promise.all([
+  type Latest = { _id: unknown; at: Date };
+  const latestBy = (array: "parties" | "companies", idField: "propertyId" | "companyId") =>
+    Collab.aggregate<Latest>([
+      { $match: { status: "published" } },
+      { $unwind: `$${array}` },
+      { $group: { _id: `$${array}.${idField}`, at: { $max: "$updatedAt" } } },
+      { $match: { _id: { $ne: null } } },
+    ]);
+  const [collabs, propertyLatest, companyLatest] = await Promise.all([
     Collab.find({ status: "published" }).select({ slug: 1, updatedAt: 1 }).sort({ updatedAt: -1 }).lean(),
-    Collab.distinct("parties.propertyId", { status: "published" }),
-    Collab.distinct("companies.companyId", { status: "published" }),
+    latestBy("parties", "propertyId"),
+    latestBy("companies", "companyId"),
   ]);
   const [properties, companies] = await Promise.all([
-    Property.find({ _id: { $in: propertyIds } }).select({ slug: 1 }).sort({ slug: 1 }).lean(),
-    Company.find({ _id: { $in: companyIds } }).select({ slug: 1 }).sort({ slug: 1 }).lean(),
+    Property.find({ _id: { $in: propertyLatest.map((l) => l._id) } }).select({ slug: 1, updatedAt: 1 }).sort({ slug: 1 }).lean(),
+    Company.find({ _id: { $in: companyLatest.map((l) => l._id) } }).select({ slug: 1, updatedAt: 1 }).sort({ slug: 1 }).lean(),
   ]);
+  const entry = (latest: Latest[]) => {
+    const byId = new Map(latest.map((l) => [String(l._id), l.at]));
+    return (e: { _id: unknown; slug: string; updatedAt?: Date | null }) => {
+      const times = [e.updatedAt, byId.get(String(e._id))].filter((d): d is Date => d instanceof Date);
+      const at = times.length ? new Date(Math.max(...times.map(Number))) : null;
+      return { slug: e.slug, updatedAt: at?.toISOString() ?? null };
+    };
+  };
   res.json({
     data: {
       collabs: collabs.map((c) => ({ slug: c.slug, updatedAt: c.updatedAt?.toISOString() ?? null })),
-      properties: properties.map((p) => ({ slug: p.slug })),
-      companies: companies.map((c) => ({ slug: c.slug })),
+      properties: properties.map(entry(propertyLatest)),
+      companies: companies.map(entry(companyLatest)),
     },
   });
 });

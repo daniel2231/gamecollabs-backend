@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HttpUrl, IsoDateOrMonth, Slug } from "./common.js";
-import { CompanyRole, EndKind, SourceType } from "./collab.js";
+import { CompanyRole, EndKind, SourceType, VenueInput } from "./collab.js";
 
 export const MAX_CANDIDATES_PER_CALL = 20;
 
@@ -65,6 +65,8 @@ export const IngestCandidate = z.object({
       .min(1)
       .max(5),
     coverImageUrl: HttpUrl.nullish(),
+    /** Offline collabs: where it happens (name in ko/en, address as officially written). */
+    venues: z.array(VenueInput).max(20).default([]),
     confidence: z.number().min(0).max(1).nullish(),
     notes: z.string().trim().max(2000).nullish(),
   });

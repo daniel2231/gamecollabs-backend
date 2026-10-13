@@ -94,6 +94,7 @@ export function collabDetail(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex
       accessedAt: formatDate(s.accessedAt),
       lastCheckedAt: s.lastCheckedAt?.toISOString() ?? null,
     })),
+    venues: (doc.venues ?? []).map((v) => ({ name: pick(v.name, locale), address: v.address ?? null, url: v.url ?? null })),
     updatedAt: doc.updatedAt?.toISOString() ?? null,
   };
 }

@@ -101,6 +101,10 @@ function coverOf(input: CollabInput["cover"], previous?: CollabFields["cover"]) 
   };
 }
 
+function venuesOf(input: CollabInput["venues"]) {
+  return input.map((v) => ({ name: { ko: v.name.ko, en: v.name.en }, address: v.address ?? null, url: v.url ?? null }));
+}
+
 /** `<english-title-or-names>-<yyyy-mm>`, made unique with a numeric suffix. */
 export async function uniqueSlug(
   base: { title?: string | null; names?: (string | null | undefined)[]; start?: Date | null },
@@ -122,7 +126,7 @@ function plain(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
-const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "platforms", "collabTypes", "period", "sources", "cover"] as const;
+const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "platforms", "collabTypes", "period", "sources", "cover", "venues"] as const;
 
 function snapshot(doc: CollabDoc): Record<string, unknown> {
   const obj = doc.toObject();
@@ -267,6 +271,7 @@ export async function createDraft(input: CollabInput, actor: Principal, opts: Cr
       period,
       sources: toSources(input.sources),
       cover: coverOf(input.cover),
+      venues: venuesOf(input.venues),
       review: { createdBy: actor.userId },
       origin: { type: actor.role === "agent" ? "agent" : "manual", ...opts.origin },
     });
@@ -324,6 +329,7 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
     if (patch.period !== undefined) doc.set("period", toStoredPeriod(patch.period));
     if (patch.sources !== undefined) doc.set("sources", toSources(patch.sources));
     if (patch.cover !== undefined) doc.set("cover", coverOf(patch.cover, doc.cover));
+    if (patch.venues !== undefined) doc.set("venues", venuesOf(patch.venues));
 
     const diff = diffOf(before, snapshot(doc));
     if (Object.keys(diff).length === 0) return { doc, changed: false, oldSlug, oldEntities };

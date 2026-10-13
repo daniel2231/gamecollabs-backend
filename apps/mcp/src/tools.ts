@@ -30,7 +30,9 @@ names, plus the original-script name when it differs; for companies also country
 alpha-2): if find_entity finds nothing, the server creates the game/IP/company from them so
 the draft is linked; use the slug from find_entity when it does find one. Give every company its
 role: developer (makes the game), publisher (publishes/operates it), licensor (owns the partner IP),
-brand_partner (brand, food & beverage, retail), organizer (venue or event operator).`;
+brand_partner (brand, food & beverage, retail), organizer (venue or event operator).
+For offline collabs (cafés, pop-up stores, events, shop campaigns) add venues: the official venue
+name in Korean and English, the address as officially written, and the venue page URL if any.`;
 
 function json(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };

@@ -291,16 +291,49 @@ describe("public API", () => {
   it("lists published collabs and their entities for the sitemap", async () => {
     const res = await service().get("/v1/sitemap");
     expect(res.status).toBe(200);
+    // Entity pages change when one of their collabs changes: updatedAt is at least the newest collab's.
+    const latestCollab = Math.max(...res.body.data.collabs.map((c: { updatedAt: string }) => Date.parse(c.updatedAt)));
+    const krafton = res.body.data.companies.find((c: { slug: string }) => c.slug === "krafton");
+    expect(Date.parse(krafton.updatedAt)).toBeGreaterThan(0);
+    for (const p of res.body.data.properties) expect(p.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    const aot = res.body.data.properties.find((p: { slug: string }) => p.slug === "attack-on-titan");
+    expect(Date.parse(aot.updatedAt)).toBeLessThanOrEqual(Math.max(latestCollab, Date.now()));
     expect(res.body.data.collabs.map((c: { slug: string }) => c.slug).sort()).toEqual([published.slug, "taiko-no-tatsujin-jagariko-2026-10"].sort());
     expect(res.body.data.properties.map((p: { slug: string }) => p.slug)).toEqual(expect.arrayContaining(["attack-on-titan", "pubg-mobile"]));
     expect(res.body.data.properties.map((p: { slug: string }) => p.slug)).not.toContain("blood-strike");
-    expect(res.body.data.companies).toEqual([{ slug: "krafton" }]);
+    expect(res.body.data.companies).toEqual([{ slug: "krafton", updatedAt: expect.any(String) }]);
   });
 
   it("gives the admin queue status counts and duplicate flags", async () => {
     const res = await as(admin).get("/v1/admin/collabs?status=draft,in_review");
     expect(res.body.meta.counts).toMatchObject({ published: 2, draft: 1, in_review: 0, archived: 0 });
     expect(res.body.data[0].duplicateCount).toBe(0);
+  });
+
+  it("stores venues for offline collabs and serves them per language", async () => {
+    const venues = [
+      { name: { ko: "로운드원 시부야점", en: "ROUND1 Shibuya" }, address: "東京都渋谷区宇田川町", url: "https://www.round1.co.jp/shop/tenpo/tokyo-shibuya.html" },
+      { name: { ko: "전국 매장", en: "All stores" } },
+    ];
+    const created = await as(admin).post("/v1/admin/collabs").send(draftBody(e.taiko.id, e.jagariko.id, { sources: [{ url: "https://example.com/venue" }], category: "category.offline_event", venues }));
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const id = created.body.data.id;
+    expect(created.body.data.venues).toEqual([
+      { name: venues[0]!.name, address: venues[0]!.address, url: venues[0]!.url },
+      { name: venues[1]!.name, address: null, url: null },
+    ]);
+    // Venue names follow the bilingual rule.
+    const bad = await as(admin).patch(`/v1/admin/collabs/${id}`).set("if-match", "1").send({ venues: [{ name: { ko: "매장" } }] });
+    expect(bad.status).toBe(422);
+    const patched = await as(admin).patch(`/v1/admin/collabs/${id}`).set("if-match", "1").send({ venues: [venues[0]] });
+    expect(patched.body.data.venues).toHaveLength(1);
+    expect(patched.body.data.parties).toHaveLength(2);
+    await as(admin).post(`/v1/admin/collabs/${id}/transition`).send({ action: "publish" });
+    const slug = created.body.data.slug;
+    const en = await service().get(`/v1/collabs/${slug}?locale=en`);
+    expect(en.body.data.venues).toEqual([{ name: "ROUND1 Shibuya", address: venues[0]!.address, url: venues[0]!.url }]);
+    expect((await service().get(`/v1/collabs/${slug}?locale=ko`)).body.data.venues[0].name).toBe("로운드원 시부야점");
+    await Collab.deleteOne({ _id: id });
   });
 
   it("returns the taxonomy tree", async () => {

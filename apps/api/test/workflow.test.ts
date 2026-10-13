@@ -169,6 +169,14 @@ describe("ingest", () => {
     expect(await Property.countDocuments()).toBe(before);
   });
 
+  it("keeps venues of offline candidates", async () => {
+    const res = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({ client: "chatgpt-mcp", candidates: [candidate({ sources: [{ url: "https://news.example.com/cafe" }], venues: [{ name: { ko: "콜라보 카페 홍대점", en: "Collab Café Hongdae" }, address: "서울 마포구 와우산로" }] })] });
+    const doc = await Collab.findById(res.body.data.results[0].id).lean();
+    expect(doc!.venues).toEqual([{ name: { ko: "콜라보 카페 홍대점", en: "Collab Café Hongdae" }, address: "서울 마포구 와우산로", url: null }]);
+  });
+
   it("rejects candidates missing either language", async () => {
     const res = await as(ingest)
       .post("/v1/ingest/candidates")

@@ -95,6 +95,17 @@ export const SourceInput = z.object({
 });
 export type SourceInput = z.infer<typeof SourceInput>;
 
+/**
+ * Where an offline collab takes place (shop, café, venue). The name is shown to readers, so it
+ * is required in Korean and English; the address is kept as officially written (local language).
+ */
+export const VenueInput = z.object({
+  name: Bilingual(200),
+  address: z.string().trim().min(1).max(300).nullish(),
+  url: HttpUrl.nullish(),
+});
+export type VenueInput = z.infer<typeof VenueInput>;
+
 export const CoverInput = z.object({
   originalUrl: HttpUrl.nullish(),
   storageKey: z.string().max(512).nullish(),
@@ -116,6 +127,8 @@ export const CollabInput = z.object({
   period: PeriodInput.default({ endKind: "fixed" }),
   sources: z.array(SourceInput).min(1).max(20),
   cover: CoverInput.nullish(),
+  /** Offline collabs only; several for chain-wide campaigns. */
+  venues: z.array(VenueInput).max(20).default([]),
 });
 export type CollabInput = z.infer<typeof CollabInput>;
 

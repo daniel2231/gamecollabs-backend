@@ -56,6 +56,14 @@ const sourceSchema = new Schema(
   { _id: false },
 );
 
+const venueSchema = new Schema(
+  {
+    name: { type: snapshotName, required: true },
+    address: str,
+    url: str,
+  },
+  { _id: false },
+);
 const coverSchema = new Schema(
   {
     storageKey: str,
@@ -97,6 +105,8 @@ const collabSchema = new Schema(
       validate: { validator: (v: unknown[]) => v.length >= 1, message: "at least one source is required" },
     },
     cover: { type: coverSchema, default: null },
+    /** Offline collabs: shops/venues where it takes place. */
+    venues: { type: [venueSchema], default: [] },
     review: {
       createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
       reviewedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },

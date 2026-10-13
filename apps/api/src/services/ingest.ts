@@ -203,6 +203,7 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
       return { url, title: s?.title ?? null, publisher: s?.publisher ?? null, type: s?.type ?? "press", isPrimary: i === 0, accessedAt: today };
     }),
     cover: c.coverImageUrl ? { originalUrl: c.coverImageUrl } : null,
+    venues: c.venues,
   };
 
   const isGpt = /gpt|openai/i.test(ctx.client);
