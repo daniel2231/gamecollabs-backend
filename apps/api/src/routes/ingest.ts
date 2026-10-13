@@ -1,9 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
-import { IngestRequest, IsoDate } from "@gamecollabs/schema";
+import { FollowUpListQuery, FollowUpReport, IngestRequest, IsoDate } from "@gamecollabs/schema";
 import { principal, requireScope } from "../auth/principal.js";
 import { HttpError, parse } from "../lib/errors.js";
 import { ingestCandidates, lookupCollabs, lookupEntities } from "../services/ingest.js";
+import { listFollowUps, reportFollowUp } from "../services/followUps.js";
 
 /**
  * Collector API (MCP server, agents, OpenAI scheduler). Responses carry only
@@ -27,6 +28,17 @@ ingestRouter.get("/lookup/collabs", requireScope("ingest:read"), async (req, res
     req.query,
   );
   res.json({ data: await lookupCollabs(q) });
+});
+
+/** Collabs whose re-check is due (announced without dates, end not announced, …). */
+ingestRouter.get("/followups", requireScope("ingest:read"), async (req, res) => {
+  const { limit } = parse(FollowUpListQuery, req.query);
+  res.json({ data: await listFollowUps({ view: "due", limit }) });
+});
+
+/** Result of one re-check: drafts are edited, other collabs get a proposal for an admin. */
+ingestRouter.post("/followups/:id", requireScope("ingest:write"), async (req, res) => {
+  res.json({ data: await reportFollowUp(String(req.params.id), parse(FollowUpReport, req.body), principal(req)) });
 });
 
 /**

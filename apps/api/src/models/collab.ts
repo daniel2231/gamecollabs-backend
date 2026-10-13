@@ -3,6 +3,7 @@ import {
   COLLAB_STATUSES,
   COMPANY_ROLES,
   END_KINDS,
+  FOLLOW_UP_REASONS,
   ORIGIN_TYPES,
   PARTY_ROLES,
   PRECISIONS,
@@ -10,6 +11,7 @@ import {
 } from "@gamecollabs/schema";
 import { indexTokens } from "../lib/text.js";
 import { untilOf } from "../lib/period.js";
+import { followUpReasonOf, followUpReset } from "../lib/followUp.js";
 import { taxonomy } from "../services/taxonomy.js";
 
 const str = { type: String, default: null };
@@ -126,6 +128,20 @@ const collabSchema = new Schema(
       unmapped: { type: Schema.Types.Mixed, default: null },
       notes: str,
     },
+    /**
+     * Re-check queue for collabs still missing dates (see lib/followUp.ts). `reason` is derived from
+     * the period on save and by the daily `followups` job; bookkeeping writes never bump `rev`.
+     */
+    followUp: {
+      reason: { type: String, enum: [...FOLLOW_UP_REASONS, null], default: null },
+      nextCheckAt: { type: Date, default: null },
+      lastCheckedAt: { type: Date, default: null },
+      /** Checks in a row that found nothing new. */
+      unchanged: { type: Number, default: 0 },
+      escalatedAt: { type: Date, default: null },
+      /** Pending change found for a collab under review or published: { changes, sources, note, rev, by, at }. */
+      proposal: { type: Schema.Types.Mixed, default: null },
+    },
     rev: { type: Number, default: 1 },
     searchTokens: { type: [String], default: [], select: false },
   },
@@ -142,6 +158,7 @@ collabSchema.index({ searchTokens: 1 });
 collabSchema.index({ "sources.url": 1 });
 collabSchema.index({ status: 1, updatedAt: -1, _id: -1 });
 collabSchema.index({ "origin.runId": 1, createdAt: -1 });
+collabSchema.index({ "followUp.nextCheckAt": 1 }, { partialFilterExpression: { "followUp.reason": { $type: "string" } } });
 
 export type CollabFields = InferSchemaType<typeof collabSchema>;
 export type CollabDoc = HydratedDocument<CollabFields>;
@@ -189,6 +206,11 @@ collabSchema.pre("validate", async function () {
   this.facetKeys = terms.expand(facetSources);
   this.searchTokens = collabSearchTokens(this);
   this.set("period.until", untilOf(this.period?.end ?? null, (this.period?.precision ?? "unknown") as "day" | "month" | "unknown"));
+
+  const reason = followUpReasonOf({ status: this.status, period: this.period });
+  if (reason !== (this.followUp?.reason ?? null)) {
+    for (const [k, v] of Object.entries(followUpReset(reason))) this.set(`followUp.${k}`, v);
+  }
 });
 
 collabSchema.pre("save", function () {

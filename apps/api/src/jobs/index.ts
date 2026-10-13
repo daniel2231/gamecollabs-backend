@@ -5,6 +5,7 @@ import { withJobLock } from "./lock.js";
 import { consistency, exportJson, linkCheck, mirrorCovers, recount, reindexFacets } from "./tasks.js";
 import { discoverWithOpenAI } from "./discover.js";
 import { cleanupUploads } from "../services/media.js";
+import { refreshFollowUps } from "../services/followUps.js";
 
 type Job = { run: () => Promise<unknown>; schedule: string; ttlMs: number; enabled?: () => boolean };
 
@@ -15,6 +16,7 @@ export const JOBS: Record<string, Job> = {
   "link-check": { run: linkCheck, schedule: "10 4 * * 1", ttlMs: 60 * MIN },
   recount: { run: recount, schedule: "20 3 * * *", ttlMs: 10 * MIN },
   "reindex-facets": { run: reindexFacets, schedule: "40 3 * * *", ttlMs: 10 * MIN },
+  followups: { run: () => refreshFollowUps(), schedule: "50 3 * * *", ttlMs: 10 * MIN },
   consistency: { run: consistency, schedule: "40 4 * * 0", ttlMs: 20 * MIN },
   "mirror-covers": { run: () => mirrorCovers(), schedule: "15 * * * *", ttlMs: 20 * MIN },
   "export-json": { run: () => exportJson(), schedule: "0 5 * * 0", ttlMs: 10 * MIN },

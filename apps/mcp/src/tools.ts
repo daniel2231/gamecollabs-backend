@@ -6,6 +6,8 @@ import {
   CollabPatch,
   CompanyInput,
   CompanyPatch,
+  FOLLOW_UP_VIEWS,
+  FollowUpReport,
   IngestCandidate,
   IsoDate,
   MAX_CANDIDATES_PER_CALL,
@@ -32,7 +34,15 @@ the draft is linked; use the slug from find_entity when it does find one. Give e
 role: developer (makes the game), publisher (publishes/operates it), licensor (owns the partner IP),
 brand_partner (brand, food & beverage, retail), organizer (venue or event operator).
 For offline collabs (cafés, pop-up stores, events, shop campaigns) add venues: the official venue
-name in Korean and English, the address as officially written, and the venue page URL if any.`;
+name in Korean and English, the address as officially written, and the venue page URL if any.
+
+Follow-ups: collabs announced without dates (start not out, only the month known, end not announced)
+are re-checked on a schedule. list_followups returns the ones due; look each up again (official site,
+press release, patch notes, store page) and call report_followup once per collab: outcome "no_change"
+when nothing new is public (the next check moves back: 3, 7, 14, then 30 days), or "updated" with
+the rev from list_followups, the changed period and/or i18n, and the source that states it. Drafts are
+updated directly; for collabs under review or published the change waits for an admin. Only report what
+a source states; an end date that a guide or community post guesses is not announced.`;
 
 function json(data: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(data) }] };
@@ -63,7 +73,10 @@ arrays); transition_collab to submit, publish, reject (reason required), archive
 find_entity, create_entity, update_entity and merge_entities for games/IPs/companies. Every change
 is recorded in the collab history (collab_history) and can be undone by editing again. Only change
 what a public source supports, and publish only complete collabs (ko/en text, linked parties,
-category, start date, sources).`;
+category, start date, sources).
+followup_queue shows re-check proposals (changes found for collabs under review or published) and
+escalated collabs (no news after many checks: set the dates, endKind "permanent", or archive);
+resolve_followup applies a proposal (rev required, same rules as update_collab) or dismisses it.`;
 
 /** Compact row for lists: enough to pick what to open with get_collab. */
 function row(c: AdminCollab) {
@@ -165,6 +178,30 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
       ),
   );
 
+  server.registerTool(
+    "list_followups",
+    {
+      title: "List collabs due for a re-check",
+      description:
+        "Collabs whose dates were not fully announced and whose next check is due, oldest first: reason start_tba (start date not out), month_only (only the month known), end_tba (end not announced) or end_missing. Each row has id, rev, titles, summary, parties, current period and source URLs.",
+      inputSchema: { limit: z.number().int().min(1).max(50).default(20) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) => logged("list_followups", args, ctx, async () => json(await api.dueFollowUps(args.limit))),
+  );
+
+  server.registerTool(
+    "report_followup",
+    {
+      title: "Report a collab re-check",
+      description:
+        'Records the result of re-checking one collab from list_followups. outcome "no_change": nothing new is public (schedules the next check). outcome "updated": pass rev (from list_followups), changes.period (complete period: start, end, endKind fixed|permanent|tba; YYYY-MM-DD or YYYY-MM) and/or changes.i18n (whole ko and en title/summary), and the sources stating it (added to the stored ones). Drafts are updated at once; collabs under review or published get a proposal that an admin applies or dismisses.',
+      inputSchema: { id_or_slug: z.string().trim().min(1).max(200).describe("id or slug from list_followups"), report: FollowUpReport },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    (args, ctx) => logged("report_followup", args, ctx, async () => json(await api.reportFollowUp(args.id_or_slug, args.report))),
+  );
+
   if (admin) registerAdminTools(server, api, logged);
   return server;
 }
@@ -247,6 +284,28 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
       logged("transition_collab", args, ctx, async () =>
         json(row(await api.transitionCollab(args.id_or_slug, { action: args.action, ...(args.reason ? { reason: args.reason } : {}) }, args.rev))),
       ),
+  );
+
+  server.registerTool(
+    "followup_queue",
+    {
+      title: "Re-check queue (admin)",
+      description: "view proposals: changes a re-check found for collabs under review or published, waiting for a decision. view escalated: collabs with no news after many checks. view due: what list_followups returns.",
+      inputSchema: { view: z.enum(FOLLOW_UP_VIEWS).default("proposals"), limit: z.number().int().min(1).max(50).default(20) },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) => logged("followup_queue", args, ctx, async () => json(await api.followUpQueue(args.view, args.limit))),
+  );
+
+  server.registerTool(
+    "resolve_followup",
+    {
+      title: "Apply or dismiss a re-check proposal (admin)",
+      description: "apply: makes the proposed period/text change and adds its sources, like update_collab (rev required, published collabs must stay complete). dismiss: drops the proposal and resumes checking.",
+      inputSchema: { id_or_slug: IdOrSlug, action: z.enum(["apply", "dismiss"]), rev: z.number().int().min(1).optional().describe("Current rev, required to apply") },
+      annotations: write,
+    },
+    (args, ctx) => logged("resolve_followup", args, ctx, async () => json(row(await api.resolveFollowUp(args.id_or_slug, args.action, args.rev)))),
   );
 
   server.registerTool(

@@ -1,4 +1,4 @@
-import type { IngestCandidate, IngestResponse } from "@gamecollabs/schema";
+import type { FollowUpReport, IngestCandidate, IngestResponse } from "@gamecollabs/schema";
 import type { Config } from "./config.js";
 
 export class ApiError extends Error {
@@ -67,6 +67,14 @@ export class ApiClient {
     return this.admin<unknown>("POST", `/v1/admin/collabs/${encodeURIComponent(idOrSlug)}/cover/mirror`);
   }
 
+  followUpQueue(view: string, limit: number) {
+    return this.admin<FollowUpRow[]>("GET", `/v1/admin/followups?${new URLSearchParams({ view, limit: String(limit) })}`);
+  }
+
+  resolveFollowUp(idOrSlug: string, action: "apply" | "dismiss", rev?: number) {
+    return this.admin<AdminCollab>("POST", `/v1/admin/collabs/${encodeURIComponent(idOrSlug)}/followup`, { action }, rev ? { "if-match": String(rev) } : undefined);
+  }
+
   searchEntities(kind: EntityKind, q: string) {
     return this.admin<unknown[]>("GET", `/v1/admin/${entityPath(kind)}?${new URLSearchParams({ q, limit: "20" })}`);
   }
@@ -100,12 +108,23 @@ export class ApiClient {
     return this.call<unknown[]>("GET", `/v1/ingest/lookup/entities?${new URLSearchParams({ name })}`);
   }
 
+  dueFollowUps(limit: number) {
+    return this.call<FollowUpRow[]>("GET", `/v1/ingest/followups?limit=${limit}`);
+  }
+
+  reportFollowUp(idOrSlug: string, report: FollowUpReport) {
+    return this.call<unknown>("POST", `/v1/ingest/followups/${encodeURIComponent(idOrSlug)}`, report);
+  }
+
   submitCandidates(body: { runId: string; client: string; model?: string; candidates: IngestCandidate[] }) {
     return this.call<IngestResponse>("POST", "/v1/ingest/candidates", body);
   }
 }
 
 export type TaxonomyNode = { key: string; label: string; labels: { ko: string; en: string }; children: TaxonomyNode[] };
+
+/** A collab in the re-check queue, as `/followups` returns it. */
+export type FollowUpRow = { id: string; slug: string; status: string; rev: number; reason: string | null } & Record<string, unknown>;
 
 export type EntityKind = "property" | "company";
 const entityPath = (kind: EntityKind) => (kind === "property" ? "properties" : "companies");
