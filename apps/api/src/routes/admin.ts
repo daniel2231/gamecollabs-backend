@@ -8,6 +8,8 @@ import {
   CompanyInput,
   CompanyPatch,
   EntitySearchQuery,
+  FollowUpListQuery,
+  FollowUpResolution,
   Locale,
   MergeInput,
   ObjectIdString,
@@ -40,6 +42,7 @@ import {
   updateEntity,
   type EntityType,
 } from "../services/entities.js";
+import { listFollowUps, resolveFollowUp } from "../services/followUps.js";
 import { lookupCollabs } from "../services/ingest.js";
 import { UPLOAD_MAX_BYTES, mirrorCover, storeUpload } from "../services/media.js";
 import { collabAdmin, entitySummary } from "../services/serialize.js";
@@ -102,6 +105,19 @@ adminRouter.post("/collabs/:id/cover/mirror", requireScope("collabs:write"), asy
   const doc = await getById(id(req));
   const result = await mirrorCover(doc);
   res.json({ data: { result, collab: collabAdmin((await getById(id(req))).toObject()) } });
+});
+
+/* ---------------------------------------------------------------- follow-ups */
+
+/** Re-check queue: `due`, `proposals` (changes found for collabs under review/published), `escalated`. */
+adminRouter.get("/followups", requireScope("collabs:read_internal"), async (req, res) => {
+  res.json({ data: await listFollowUps(parse(FollowUpListQuery, req.query)) });
+});
+
+/** Applies (as a normal PATCH, If-Match required) or dismisses the pending follow-up proposal. */
+adminRouter.post("/collabs/:id/followup", requireScope("collabs:write"), async (req, res) => {
+  const doc = await resolveFollowUp(id(req), parse(FollowUpResolution, req.body), ifMatch(req), principal(req));
+  res.setHeader("etag", `"${doc.rev}"`).json({ data: collabAdmin(doc.toObject()) });
 });
 
 /* ---------------------------------------------------------------- media */

@@ -101,14 +101,35 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
   → ingestCandidates(): 스키마 → 중복(출처 URL 또는 같은 게임·파트너 ±14일) → 출처 URL 접속 확인 → 분류 매핑(실패 값은 origin.unmapped에 보존) → draft
 ```
 
-- MCP 도구: `get_taxonomy`, `search_collabs`, `find_entity`(읽기, `readOnlyHint: true`), `submit_collab_candidates`(`readOnlyHint: false`, `idempotentHint: true`).
+- MCP 도구: `get_taxonomy`, `search_collabs`, `find_entity`(읽기, `readOnlyHint: true`), `submit_collab_candidates`(`readOnlyHint: false`, `idempotentHint: true`), 그리고 후속 확인용 `list_followups`, `report_followup` (아래 참고).
 - 안전장치: 호출당 20건(스키마), 하루 100건(`INGEST_DAILY_LIMIT`, KST 기준, 초과 시 거부 + 알림), draft만 생성, 출처 URL 확인 시 사설 IP 차단(SSRF 방지), 모든 도구 호출 로그.
 - 대체 경로: `OPENAI_API_KEY`와 `OPENAI_MODEL`을 설정하면 `discover-openai` 작업이 매일 09:05 KST에 Responses API(`web_search` + JSON 스키마)를 호출해 같은 `ingestCandidates`로 넣습니다. 월 예산은 `OPENAI_MONTHLY_BUDGET_USD`로 제한합니다.
 - ChatGPT 커넥터 등록: GitHub OAuth 앱의 콜백을 `https://mcp.<도메인>/oauth/github/callback`으로 만들고, ChatGPT에 `https://mcp.<도메인>/mcp`를 추가합니다. 등록된 클라이언트는 `DATA_DIR/oauth-clients.json`에 남습니다.
 
+### 후속 확인 (날짜 미정 콜라보)
+
+발표만 되고 날짜가 "coming soon"인 콜라보, 월만 알려진 콜라보, 종료일이 발표되지 않은 콜라보는 저장할 때 `followUp.reason`이 붙어 재확인 대상이 됩니다.
+
+| `reason` | 조건 | 기다리는 정보 |
+| --- | --- | --- |
+| `start_tba` | 시작일 없음 | 시작일 |
+| `month_only` | 시작일이 월 단위 (그 달이 끝날 때까지) | 정확한 시작일 |
+| `end_tba` | 종료일 없음, `endKind: "tba"` | 종료일 또는 상시(`permanent`) 여부 |
+| `end_missing` | 종료일 없음, `endKind: "fixed"` | 종료일 (데이터 누락) |
+
+날짜가 다 채워지거나, 종료됐거나, `permanent`이거나, 보관된 콜라보는 대상에서 빠집니다.
+
+- 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).
+- MCP 도구 (`/mcp`, `/mcp/admin` 둘 다): `list_followups`로 확인할 콜라보를 받고, `report_followup`으로 결과를 보냅니다. 예약 작업 프롬프트는 `prompts/daily-followup.md`입니다.
+  - `no_change`: 다음 확인일만 뒤로 미룹니다 (`rev`는 바뀌지 않음).
+  - `updated`: **초안은 바로 수정**합니다 (`rev` 확인, 변경 이력 기록, 새 출처는 기존 출처 뒤에 추가). **검수 중·발행된 콜라보는 수정하지 않고 제안(`followUp.proposal`)으로 저장**하고 알림을 보냅니다. 제안이 처리될 때까지 그 콜라보는 확인 대상에서 빠집니다.
+- 관리용 도구: `followup_queue`(`proposals`/`escalated`/`due`), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
+- API: `GET /v1/ingest/followups`, `POST /v1/ingest/followups/:id`(수집 토큰), `GET /v1/admin/followups?view=`, `POST /v1/admin/collabs/:id/followup`(`If-Match` 필요, apply 시).
+- `followups` 작업이 매일 사유를 다시 계산합니다 (시간이 지나 종료되거나 `month_only`에서 벗어난 콜라보 반영, 기존 데이터 채우기). 새로 대상이 된 콜라보는 바로 확인 대상입니다. 배포 직후 한 번 `pnpm --filter @gamecollabs/api job followups`(컨테이너에서는 `node dist/cli/index.js job followups`)로 기존 데이터를 채우세요.
+
 ### 관리용 MCP (`/mcp/admin`)
 
-`deploy/.env.mcp`에 `ADMIN_API_KEY`(관리자 역할 API 토큰)를 넣으면 `https://mcp.<도메인>/mcp/admin`이 열립니다. 수집 도구 4개에 더해 운영 데이터를 고치는 도구가 붙습니다. `/mcp`(ChatGPT 수집용)는 그대로 수집 전용입니다.
+`deploy/.env.mcp`에 `ADMIN_API_KEY`(관리자 역할 API 토큰)를 넣으면 `https://mcp.<도메인>/mcp/admin`이 열립니다. 수집·후속 확인 도구에 더해 운영 데이터를 고치는 도구가 붙습니다. `/mcp`(ChatGPT 수집용)는 그대로 수집·후속 확인 전용입니다.
 
 | 도구 | 하는 일 |
 | --- | --- |
@@ -133,6 +154,7 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | --- | --- | --- |
 | `link-check` | 월 04:10 | 출처 URL 상태 확인, 깨진 링크 알림 (F-10) |
 | `recount` | 매일 03:20 | `collabCount` 보정 |
+| `followups` | 매일 03:50 | 후속 확인 사유 재계산, 기존 데이터 채우기 |
 | `reindex-facets` | 매일 03:40 | 분류 계층 변경 후 `facetKeys` 재계산 |
 | `consistency` | 일 04:40 | 이름 스냅샷 불일치 수정 |
 | `mirror-covers` | 매시 15분 | 커버 이미지를 R2로 복사 (F-09) |

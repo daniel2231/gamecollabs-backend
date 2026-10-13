@@ -40,6 +40,10 @@ beforeAll(async () => {
   api.get("/v1/admin/collabs/:id/duplicates", (_req, res) => res.json({ data: [] }));
   api.patch("/v1/admin/collabs/:id", (req, res) => res.json({ data: { ...doc, ...req.body, rev: Number(req.get("if-match")) + 1 } }));
   api.post("/v1/admin/properties/:id/merge", (req, res) => res.json({ data: { _id: req.params.id, merged: req.body.from } }));
+  api.get("/v1/ingest/followups", (_req, res) => res.json({ data: [{ id: doc.id, slug: doc.slug, status: "draft", rev: 3, reason: "start_tba" }] }));
+  api.post("/v1/ingest/followups/:id", (req, res) => res.json({ data: { result: req.body.outcome === "no_change" ? "recorded" : "applied", slug: req.params.id } }));
+  api.get("/v1/admin/followups", (_req, res) => res.json({ data: [] }));
+  api.post("/v1/admin/collabs/:id/followup", (req, res) => res.json({ data: { ...doc, rev: Number(req.get("if-match") ?? doc.rev) + 1 } }));
   api.post("/v1/ingest/candidates", (req, res) => {
     res.json({ data: { runId: req.body.runId, results: [{ index: 0, status: "created", slug: "x" }], summary: { created: 1, duplicate: 0, rejected: 0 } } });
   });
@@ -146,12 +150,14 @@ describe("tools", () => {
     accessToken = (await token()).access_token;
   });
 
-  it("lists the four tools with honest annotations", async () => {
+  it("lists the ingest and follow-up tools with honest annotations", async () => {
     const res = await rpc(accessToken, { jsonrpc: "2.0", id: 1, method: "tools/list" });
     expect(res.status).toBe(200);
     const tools = Object.fromEntries(res.body.result.tools.map((t: { name: string; annotations: unknown }) => [t.name, t.annotations]));
-    expect(Object.keys(tools).sort()).toEqual(["find_entity", "get_taxonomy", "search_collabs", "submit_collab_candidates"]);
+    expect(Object.keys(tools).sort()).toEqual(["find_entity", "get_taxonomy", "list_followups", "report_followup", "search_collabs", "submit_collab_candidates"]);
     expect(tools.get_taxonomy).toMatchObject({ readOnlyHint: true });
+    expect(tools.list_followups).toMatchObject({ readOnlyHint: true });
+    expect(tools.report_followup).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     expect(tools.submit_collab_candidates).toMatchObject({ readOnlyHint: false, idempotentHint: true });
   });
 
@@ -178,6 +184,23 @@ describe("tools", () => {
     const call = received.find((r) => r.path === "/v1/ingest/candidates")!;
     expect(call.auth).toBe(`Bearer ${API_KEY}`);
     expect(call.body).toMatchObject({ client: "chatgpt-mcp", runId: dailyRunId("chatgpt-mcp") });
+  });
+
+  it("lists due follow-ups and reports re-checks with the ingest key", async () => {
+    const call = (id: number, name: string, args: unknown) => rpc(accessToken, { jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+    const list = await call(5, "list_followups", {});
+    expect(JSON.parse(list.body.result.content[0].text)[0]).toMatchObject({ slug: "a-b-2026-10", reason: "start_tba" });
+    expect(received.at(-1)).toMatchObject({ path: "/v1/ingest/followups?limit=20", auth: `Bearer ${API_KEY}` });
+
+    const report = { outcome: "updated", rev: 3, changes: { period: { start: "2026-11-01", endKind: "tba" } }, sources: [{ url: "https://news.example.com/date" }] };
+    const res = await call(6, "report_followup", { id_or_slug: "a-b-2026-10", report });
+    expect(JSON.parse(res.body.result.content[0].text)).toEqual({ result: "applied", slug: "a-b-2026-10" });
+    expect(received.at(-1)).toMatchObject({ path: "/v1/ingest/followups/a-b-2026-10", auth: `Bearer ${API_KEY}`, body: { outcome: "updated", rev: 3 } });
+
+    const before = received.length;
+    const bad = await call(7, "report_followup", { id_or_slug: "a-b-2026-10", report: { outcome: "updated", rev: 3, changes: { period: { start: "2026-11-01" } } } });
+    expect(bad.body.result?.isError ?? bad.body.error).toBeTruthy();
+    expect(received.length).toBe(before);
   });
 
   it("validates tool input before calling the API", async () => {
@@ -217,12 +240,30 @@ describe("admin endpoint", () => {
     const res = await adminRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
     const names = res.body.result.tools.map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(
-      ["collab_history", "create_entity", "find_entity", "get_collab", "get_taxonomy", "list_collabs", "merge_entities", "mirror_cover", "search_collabs", "submit_collab_candidates", "transition_collab", "update_collab", "update_entity"].sort(),
+      [
+        "collab_history",
+        "create_entity",
+        "find_entity",
+        "followup_queue",
+        "get_collab",
+        "get_taxonomy",
+        "list_collabs",
+        "list_followups",
+        "merge_entities",
+        "mirror_cover",
+        "report_followup",
+        "resolve_followup",
+        "search_collabs",
+        "submit_collab_candidates",
+        "transition_collab",
+        "update_collab",
+        "update_entity",
+      ].sort(),
     );
     const merge = res.body.result.tools.find((t: { name: string }) => t.name === "merge_entities");
     expect(merge.annotations).toMatchObject({ destructiveHint: true });
     const ingest = await rpc(accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-    expect(ingest.body.result.tools).toHaveLength(4);
+    expect(ingest.body.result.tools).toHaveLength(6);
   });
 
   it("calls the admin API with the admin key, defaulting the review queue and sending If-Match", async () => {
@@ -238,6 +279,14 @@ describe("admin endpoint", () => {
 
     const merged = await call("merge_entities", { kind: "property", target_id: "a".repeat(24), source_id: "b".repeat(24) });
     expect(JSON.parse(merged.content[0]!.text)).toEqual({ _id: "a".repeat(24), merged: "b".repeat(24) });
+  });
+
+  it("reads the re-check queue and resolves proposals with If-Match", async () => {
+    await call("followup_queue", {});
+    expect(received.at(-1)).toMatchObject({ path: "/v1/admin/followups?view=proposals&limit=20", auth: `Bearer ${ADMIN_KEY}` });
+    const res = await call("resolve_followup", { id_or_slug: "a-b-2026-10", action: "apply", rev: 3 });
+    expect(JSON.parse(res.content[0]!.text)).toMatchObject({ slug: "a-b-2026-10", rev: 4 });
+    expect(received.at(-1)).toMatchObject({ path: "/v1/admin/collabs/a-b-2026-10/followup", body: { action: "apply" } });
   });
 
   it("validates patches against the collab schema before calling the API", async () => {
