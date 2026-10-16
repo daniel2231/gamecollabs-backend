@@ -45,7 +45,7 @@ import {
 import { listFollowUps, resolveFollowUp } from "../services/followUps.js";
 import { lookupCollabs } from "../services/ingest.js";
 import { UPLOAD_MAX_BYTES, mirrorCover, storeUpload } from "../services/media.js";
-import { collabAdmin, entitySummary } from "../services/serialize.js";
+import { collabAdmin, entitySummary, propertyAdminFields } from "../services/serialize.js";
 import { createTerm, taxonomy, updateTerm } from "../services/taxonomy.js";
 
 export const adminRouter: Router = Router();
@@ -145,27 +145,40 @@ adminRouter.post("/media", requireScope("collabs:write"), singleFile, async (req
 
 const AdminLocale = z.object({ locale: Locale.default("ko") });
 
+type EntityHit = Awaited<ReturnType<typeof searchEntities>>[number];
+
+/** Search/list item; properties also carry their home placement (`featuredOrder`, `image`). */
+function entityHit(type: EntityType, hit: EntityHit, locale: z.infer<typeof Locale>, tax: Awaited<ReturnType<typeof taxonomy>>) {
+  return { ...entitySummary(hit.doc, locale, tax), ...(type === "property" ? propertyAdminFields(hit.doc) : {}), exact: hit.exact };
+}
+
+/** Stored document; a property's image in the same form as a collab cover in the admin API. */
+function entityDoc(type: EntityType, doc: { toObject(): Record<string, unknown> & Parameters<typeof propertyAdminFields>[0] }) {
+  const obj = doc.toObject();
+  return type === "property" ? { ...obj, ...propertyAdminFields(obj) } : obj;
+}
+
 function entityRoutes(type: EntityType, path: string, input: z.ZodType, patch: z.ZodType) {
   adminRouter.get(`/${path}`, requireScope("collabs:read_internal"), async (req, res) => {
     const q = parse(EntitySearchQuery, req.query);
     const { locale } = parse(AdminLocale, req.query);
     const tax = await taxonomy();
     const hits = q.q ? await searchEntities(type, q.q, q.limit ?? 10) : await listEntities(type, q.limit ?? 1000);
-    res.json({ data: hits.map((h) => ({ ...entitySummary(h.doc, locale, tax), exact: h.exact })) });
+    res.json({ data: hits.map((h) => entityHit(type, h, locale, tax)) });
   });
   adminRouter.post(`/${path}`, requireScope("entities:write"), async (req, res) => {
     const body = parse(input, req.body);
     const doc = type === "property" ? await createProperty(body as PropertyInput) : await createCompany(body as CompanyInput);
-    res.status(201).json({ data: doc.toObject() });
+    res.status(201).json({ data: entityDoc(type, doc) });
   });
   adminRouter.patch(`/${path}/:id`, requireScope("entities:write"), async (req, res) => {
     const doc = await updateEntity(type, id(req), parse(patch, req.body) as PropertyPatch | CompanyPatch);
-    res.json({ data: doc.toObject() });
+    res.json({ data: entityDoc(type, doc) });
   });
   adminRouter.post(`/${path}/:id/merge`, requireScope("entities:merge"), async (req, res) => {
     const { from } = parse(MergeInput, req.body);
     const doc = await mergeEntities(type, id(req), from, principal(req));
-    res.json({ data: doc.toObject() });
+    res.json({ data: entityDoc(type, doc) });
   });
 }
 entityRoutes("property", "properties", PropertyInput, PropertyPatch);
@@ -183,8 +196,8 @@ adminRouter.get("/match", requireScope("ingest:read"), async (req, res) => {
   ]);
   res.json({
     data: {
-      properties: properties.map((h) => ({ ...entitySummary(h.doc, locale, tax), exact: h.exact })),
-      companies: companies.map((h) => ({ ...entitySummary(h.doc, locale, tax), exact: h.exact })),
+      properties: properties.map((h) => entityHit("property", h, locale, tax)),
+      companies: companies.map((h) => entityHit("company", h, locale, tax)),
       collabs,
     },
   });

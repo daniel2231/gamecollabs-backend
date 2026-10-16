@@ -1,5 +1,6 @@
 import { Types, type ClientSession } from "mongoose";
 import type { CompanyInput, CompanyPatch, PropertyInput, PropertyPatch } from "@gamecollabs/schema";
+import { phaseOf } from "../lib/period.js";
 import { withTransaction } from "../db.js";
 import { Collab, collabSearchTokens } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
@@ -9,7 +10,7 @@ import { HttpError, badRequest, notFound } from "../lib/errors.js";
 import { revalidate } from "../lib/outbound.js";
 import { nameKey } from "../lib/text.js";
 import { search } from "../search/provider.js";
-import { recountEntities, snapshotName } from "./collabs.js";
+import { coverOf, recountEntities, snapshotName } from "./collabs.js";
 import { taxonomy } from "./taxonomy.js";
 
 export type EntityType = "property" | "company";
@@ -30,11 +31,25 @@ async function assertSlugFree(type: EntityType, slug: string, exceptId?: Types.O
   if (clash) throw new HttpError(409, "duplicate_key", "slug already in use", { slug: ["already in use"] });
 }
 
+type StoredImage = { storageKey?: string | null; originalUrl?: string | null } | null | undefined;
+const hasImage = (image: StoredImage) => !!(image?.storageKey || image?.originalUrl);
+
+/** What the home "browse by IP" row shows of a property, to detect changes that need the `featured` tag. */
+const placement = (doc: { featuredOrder?: number | null; image?: unknown }) => JSON.stringify([doc.featuredOrder ?? null, doc.image ?? null]);
+
 export async function createProperty(input: PropertyInput) {
   await assertKind(input.kind);
   await assertSlugFree("property", input.slug);
   if (input.parentId && !(await Property.exists({ _id: input.parentId }))) throw badRequest("invalid_parent", "parent not found");
-  return Property.create({ ...input, parentId: input.parentId ?? null, officialUrl: input.officialUrl ?? null });
+  const doc = await Property.create({
+    ...input,
+    parentId: input.parentId ?? null,
+    officialUrl: input.officialUrl ?? null,
+    featuredOrder: input.featuredOrder ?? null,
+    image: coverOf(input.image),
+  });
+  if (doc.featuredOrder != null || hasImage(doc.image)) revalidate(["featured", `property:${doc.slug}`]);
+  return doc;
 }
 
 export async function createCompany(input: CompanyInput) {
@@ -85,9 +100,19 @@ export async function updateEntity(type: EntityType, id: string, patch: Property
       if (!(await Property.exists({ _id: patch.parentId }).session(session))) throw badRequest("invalid_parent", "parent not found");
     }
     const renamed = (patch.name && JSON.stringify(patch.name) !== JSON.stringify(doc.name)) || (patch.slug && patch.slug !== doc.slug);
-    doc.set(patch);
+    const placedBefore = placement(doc.toObject());
+    const featuredBefore = doc.featuredOrder != null;
+    const { image, ...fields } = patch as PropertyPatch;
+    doc.set(fields);
+    // Omitted keeps the stored image, null removes it.
+    if (type === "property" && image !== undefined) doc.set("image", coverOf(image, doc.image));
     await doc.save({ session });
     const tags = [`${type}:${oldSlug}`, `${type}:${doc.slug}`];
+    if (type === "property") {
+      const featured = featuredBefore || doc.featuredOrder != null;
+      // The home row shows the name, kind and image of each featured property.
+      if (placement(doc.toObject()) !== placedBefore || (featured && (renamed || "kind" in patch))) tags.push("featured");
+    }
     if (renamed) tags.push("collabs", ...(await propagateSnapshot(type, doc, session)));
     if (type === "property" && "kind" in patch) {
       // Party kinds default to the property's kind; keep them in sync for linked parties.
@@ -145,7 +170,13 @@ export async function mergeEntities(type: EntityType, targetId: string, fromId: 
     const known = new Set([target.name.ko, target.name.en, target.name.original, ...target.aliases].filter(Boolean).map((n) => nameKey(n!)));
     target.aliases = [...target.aliases, ...absorbedNames.filter((n) => !known.has(nameKey(n)))];
     target.formerSlugs = [...new Set([...target.formerSlugs, from.slug, ...from.formerSlugs])];
-    if (type === "property") await Property.updateMany({ parentId: from._id }, { parentId: target._id }, { session });
+    if (type === "property") {
+      // Home placement: the target keeps its own values and takes the absorbed one's only where it has none.
+      if (target.featuredOrder == null && from.featuredOrder != null) target.featuredOrder = from.featuredOrder;
+      if (!hasImage(target.image) && hasImage(from.image)) target.set("image", from.toObject().image);
+      if (target.featuredOrder != null || from.featuredOrder != null || hasImage(target.image) || hasImage(from.image)) tags.add("featured");
+      await Property.updateMany({ parentId: from._id }, { parentId: target._id }, { session });
+    }
     await modelOf(type).deleteOne({ _id: from._id }, { session });
     await target.save({ session });
     await recountEntities(type === "property" ? [target._id] : [], type === "company" ? [target._id] : [], session);
@@ -209,4 +240,43 @@ export async function entityTimeline(type: EntityType, id: Types.ObjectId, limit
     firstStart: starts.length ? new Date(Math.min(...starts.map(Number))) : null,
     latestStart: starts.length ? new Date(Math.max(...starts.map(Number))) : null,
   };
+}
+
+/**
+ * Properties placed on the home "browse by IP" row, by `featuredOrder` then name in `locale`,
+ * with counts over their published collabs and the cover of the latest one that has a cover.
+ * Properties without published collabs are included (the web hides them).
+ */
+export async function featuredProperties(locale: "ko" | "en", now = new Date()) {
+  const properties = await Property.find({ featuredOrder: { $gte: 1 } }).lean();
+  properties.sort(
+    (a, b) =>
+      (a.featuredOrder ?? 0) - (b.featuredOrder ?? 0) ||
+      (a.name[locale] ?? "").localeCompare(b.name[locale] ?? "", locale) ||
+      a.slug.localeCompare(b.slug),
+  );
+  const ids: Types.ObjectId[] = properties.map((p) => p._id);
+  const collabs = ids.length
+    ? await Collab.find({ status: "published", "parties.propertyId": { $in: ids } })
+        .select({ parties: 1, period: 1, cover: 1 })
+        .lean()
+    : [];
+  return properties.map((property, i) => {
+    const self = ids[i]!;
+    const own = collabs.filter((c) => c.parties.some((p) => p.propertyId?.equals(self)));
+    const counterparts = new Set(
+      own.flatMap((c) => c.parties.map((p) => p.propertyId).filter((id): id is Types.ObjectId => !!id && !id.equals(self)).map(String)),
+    );
+    const ongoing = own.filter((c) => phaseOf({ start: c.period?.start ?? null, until: c.period?.until ?? null, endKind: c.period?.endKind ?? "fixed" }, now) === "ongoing");
+    const latest = own
+      .filter((c) => hasImage(c.cover) && c.period?.start)
+      .sort((a, b) => b.period!.start!.getTime() - a.period!.start!.getTime())[0];
+    return {
+      property,
+      collabCount: own.length,
+      counterpartCount: counterparts.size,
+      ongoingCount: ongoing.length,
+      latestCover: latest?.cover ?? null,
+    };
+  });
 }
