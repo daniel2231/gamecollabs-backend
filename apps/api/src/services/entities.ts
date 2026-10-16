@@ -243,16 +243,16 @@ export async function entityTimeline(type: EntityType, id: Types.ObjectId, limit
 }
 
 /**
- * Properties placed on the home "browse by IP" row, by `featuredOrder` then name in `locale`,
+ * Properties placed on the home "browse by IP" row, by `featuredOrder` then Korean name (same order in every locale),
  * with counts over their published collabs and the cover of the latest one that has a cover.
  * Properties without published collabs are included (the web hides them).
  */
-export async function featuredProperties(locale: "ko" | "en", now = new Date()) {
+export async function featuredProperties(now = new Date()) {
   const properties = await Property.find({ featuredOrder: { $gte: 1 } }).lean();
   properties.sort(
     (a, b) =>
       (a.featuredOrder ?? 0) - (b.featuredOrder ?? 0) ||
-      (a.name[locale] ?? "").localeCompare(b.name[locale] ?? "", locale) ||
+      (a.name.ko ?? "").localeCompare(b.name.ko ?? "", "ko") ||
       a.slug.localeCompare(b.slug),
   );
   const ids: Types.ObjectId[] = properties.map((p) => p._id);

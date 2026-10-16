@@ -8,10 +8,23 @@ const Aliases = z.array(z.string().trim().min(1).max(200)).max(50);
 /** Position on the home "browse by IP" row (smaller first); `null` keeps the property off it. */
 export const FeaturedOrder = z.number().int().min(1).max(999);
 
+const blank = (v: unknown) => v == null || (typeof v === "string" && v.trim() === "");
+
+/** An empty credit and an alt with no text in either language are stored as null. */
+function emptyToNull(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const image = { ...(value as Record<string, unknown>) };
+  if (blank(image.credit)) image.credit = null;
+  const alt = image.alt as Record<string, unknown> | null | undefined;
+  if (alt === undefined || alt === null || (typeof alt === "object" && blank(alt.ko) && blank(alt.en))) image.alt = null;
+  return image;
+}
+
 /** Representative image of a property: same shape and checks as a collab cover, but an image is required. */
-export const PropertyImageInput = CoverInput.refine((c) => !!(c.storageKey || c.originalUrl), {
-  message: "either storageKey or originalUrl is required",
-});
+export const PropertyImageInput = z.preprocess(
+  emptyToNull,
+  CoverInput.refine((c) => !!(c.storageKey || c.originalUrl), { message: "either storageKey or originalUrl is required" }),
+);
 export type PropertyImageInput = z.infer<typeof PropertyImageInput>;
 
 export const PropertyInput = z.object({

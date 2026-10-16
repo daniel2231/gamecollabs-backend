@@ -51,7 +51,7 @@ export function publicImage(c: StoredImage, locale: Locale) {
     url: mediaUrl(c.storageKey) ?? c.originalUrl,
     originalUrl: c.originalUrl ?? null,
     credit: c.credit ?? null,
-    alt: pick(c.alt, locale),
+    alt: pick(c.alt, locale) || null,
     width: c.width ?? null,
     height: c.height ?? null,
   };

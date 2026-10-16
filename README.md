@@ -51,7 +51,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | --- | --- | --- |
 | GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`(`start_desc`, `start_asc`, `recent`=발행일순), `cursor`, `limit`(≤100) |
 | GET | `/v1/collabs/:slug` | 상세 + 관련 콜라보. 오프라인 콜라보는 `venues: [{ name, address, url }]` (이름은 요청 언어, 주소는 공식 표기 그대로) |
-| GET | `/v1/properties?featured=true` | 홈 'IP로 찾아보기': `featuredOrder`가 있는 작품을 순서대로(같으면 요청 언어 이름순). 발행 콜라보 기준 `collabCount`, `counterpartCount`(함께한 다른 작품 수), `ongoingCount`, 대표 `image`, `latestCover`(커버 있는 발행 콜라보 중 시작일이 가장 최근). 콜라보가 없는 작품도 포함 |
+| GET | `/v1/properties?featured=true` | 홈 'IP로 찾아보기': `featuredOrder`가 있는 작품을 순서대로(같으면 한국어 이름순, 모든 언어 공통). 발행 콜라보 기준 `collabCount`, `counterpartCount`(함께한 다른 작품 수), `ongoingCount`, 대표 `image`, `latestCover`(커버 있는 발행 콜라보 중 시작일이 가장 최근). 콜라보가 없는 작품도 포함 |
 | GET | `/v1/properties/:slug`, `/v1/companies/:slug` | 엔티티 + 타임라인, 파트너 목록. 이전 slug로도 조회되며 응답의 `slug`가 정식 주소 |
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
 | GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 월별 건수, 분류별 분포 |
@@ -62,7 +62,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
 | GET | `/v1/admin/collabs/:id/revisions`, `…/duplicates` | 변경 이력, 중복 후보 |
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
-| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
+| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만). 작품의 `featuredOrder`·`image`는 대상 값을 유지하고, 대상에 없을 때만 원본 값을 옮김 |
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
