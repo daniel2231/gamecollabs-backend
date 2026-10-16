@@ -163,4 +163,13 @@ describe("cleanup-uploads", () => {
     expect(stored.has(used) && stored.has(orphanNew) && stored.has("collabs/x/cover-1.jpg")).toBe(true);
     await Collab.deleteOne({ slug: "cleanup-check" });
   });
+
+  it("keeps uploads used as property images", async () => {
+    const key = (await upload(admin, await jpeg(103, 50))).body.data.storageKey;
+    stored.get(key)!.lastModified = new Date(Date.now() - 10 * 86_400_000);
+    const res = await as(admin).patch(`/v1/admin/properties/${e.aot.id}`).send({ image: { storageKey: key } });
+    expect(res.body.data.image).toMatchObject({ storageKey: key, url: `https://media.example.com/${key}` });
+    expect(await cleanupUploads()).toEqual({ deleted: 0 });
+    expect(stored.has(key)).toBe(true);
+  });
 });

@@ -86,7 +86,8 @@ function i18nOf(input: CollabInput["i18n"]) {
   };
 }
 
-function coverOf(input: CollabInput["cover"], previous?: CollabFields["cover"]) {
+/** Stored form of a collab cover or property image; `previous` keeps the mirrored copy of an unchanged original. */
+export function coverOf(input: CollabInput["cover"], previous?: { originalUrl?: string | null; storageKey?: string | null } | null) {
   if (!input) return null;
   const sameOriginal = previous && previous.originalUrl === (input.originalUrl ?? null);
   return {

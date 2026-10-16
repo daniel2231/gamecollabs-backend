@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { CollabListQuery, Locale, StatsQuery, type Locale as LocaleT } from "@gamecollabs/schema";
+import { CollabListQuery, Locale, PropertyListQuery, StatsQuery, type Locale as LocaleT } from "@gamecollabs/schema";
 import { z } from "zod";
 import { requireScope } from "../auth/principal.js";
 import { parse } from "../lib/errors.js";
 import { formatDate } from "../lib/period.js";
 import { getPublishedBySlug, listPublic, publicFilter, related } from "../services/collabs.js";
-import { entitySummary, collabCard, collabDetail, pick } from "../services/serialize.js";
-import { entityTimeline, findBySlug, type EntityType } from "../services/entities.js";
+import { entitySummary, collabCard, collabDetail, pick, publicImage } from "../services/serialize.js";
+import { entityTimeline, featuredProperties, findBySlug, type EntityType } from "../services/entities.js";
 import { stats } from "../services/stats.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
@@ -53,6 +53,32 @@ async function entityPage(type: EntityType, slug: string, locale: LocaleT) {
       ...(type === "company" ? { companyRole: c.companies.find((x) => x.companyId.equals(entity._id))?.role ?? "unspecified" } : {}),
     })),
   };
+}
+
+/** Home "browse by IP": properties the operators placed there, in their order (cached by the web under `featured` and `collabs`). */
+publicRouter.get("/properties", async (req, res) => {
+  const { locale } = parse(PropertyListQuery, req.query);
+  const now = new Date();
+  const [tax, rows] = await Promise.all([taxonomy(), featuredProperties(locale, now)]);
+  res.json({
+    data: rows.map(({ property, collabCount, counterpartCount, ongoingCount, latestCover }) => ({
+      slug: property.slug,
+      name: pick(property.name, locale),
+      names: { ko: property.name.ko ?? null, en: property.name.en ?? null, original: property.name.original ?? null },
+      kind: tax.labeled(property.kind, locale),
+      collabCount,
+      counterpartCount,
+      ongoingCount,
+      image: imageOf(property.image, locale),
+      latestCover: publicImage(latestCover, locale),
+    })),
+  });
+});
+
+/** Public form of a property image (`url`, `credit`, `alt` in the requested language). */
+function imageOf(image: Parameters<typeof publicImage>[0], locale: LocaleT) {
+  const img = publicImage(image, locale);
+  return img && { url: img.url, credit: img.credit, alt: img.alt };
 }
 
 publicRouter.get("/properties/:slug", async (req, res) => {

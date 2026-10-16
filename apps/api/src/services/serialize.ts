@@ -34,8 +34,18 @@ function period(doc: LeanCollab) {
   };
 }
 
-function cover(doc: LeanCollab, locale: Locale) {
-  const c = doc.cover;
+type StoredImage = {
+  storageKey?: string | null;
+  originalUrl?: string | null;
+  credit?: string | null;
+  alt?: Pair;
+  width?: number | null;
+  height?: number | null;
+  mirrorError?: string | null;
+} | null | undefined;
+
+/** Public form of a collab cover or property image; null when there is no image. */
+export function publicImage(c: StoredImage, locale: Locale) {
   if (!c || !(c.storageKey || c.originalUrl)) return null;
   return {
     url: mediaUrl(c.storageKey) ?? c.originalUrl,
@@ -68,7 +78,7 @@ export function collabCard(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex, 
     regions: doc.regions.map((k) => tax.labeled(k, locale)!),
     platforms: doc.platforms.map((k) => tax.labeled(k, locale)!),
     collabTypes: doc.collabTypes.map((k) => tax.labeled(k, locale)!),
-    cover: cover(doc, locale),
+    cover: publicImage(doc.cover, locale),
     publishedAt: doc.review?.publishedAt?.toISOString() ?? null,
   };
 }
@@ -99,25 +109,27 @@ export function collabDetail(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex
   };
 }
 
+/** Admin form of a collab cover or property image, with its public URL. */
+function adminImage(c: StoredImage) {
+  if (!c || !(c.storageKey || c.originalUrl)) return null;
+  return {
+    storageKey: c.storageKey ?? null,
+    url: mediaUrl(c.storageKey) ?? c.originalUrl ?? null,
+    originalUrl: c.originalUrl ?? null,
+    credit: c.credit ?? null,
+    alt: c.alt?.ko && c.alt?.en ? { ko: c.alt.ko, en: c.alt.en } : null,
+    width: c.width ?? null,
+    height: c.height ?? null,
+  };
+}
+
 /** Admin view: the stored document minus search tokens, plus the computed phase and the cover's public URL. */
 export function collabAdmin(doc: LeanCollab, now = new Date()) {
   const { searchTokens: _omit, ...rest } = doc as LeanCollab & { searchTokens?: unknown };
-  const c = doc.cover;
+  const cover = adminImage(doc.cover);
   return {
     ...rest,
-    cover:
-      c && (c.storageKey || c.originalUrl)
-        ? {
-            storageKey: c.storageKey ?? null,
-            url: mediaUrl(c.storageKey) ?? c.originalUrl ?? null,
-            originalUrl: c.originalUrl ?? null,
-            credit: c.credit ?? null,
-            alt: c.alt?.ko && c.alt?.en ? { ko: c.alt.ko, en: c.alt.en } : null,
-            width: c.width ?? null,
-            height: c.height ?? null,
-            mirrorError: c.mirrorError ?? null,
-          }
-        : null,
+    cover: cover ? { ...cover, mirrorError: doc.cover?.mirrorError ?? null } : null,
     id: doc._id.toString(),
     phase: phaseOf({ start: doc.period?.start ?? null, until: doc.period?.until ?? null, endKind: doc.period?.endKind ?? "fixed" }, now),
   };
@@ -145,4 +157,11 @@ export function entitySummary(doc: LeanEntity, locale: Locale, tax: TaxonomyInde
     aliases: doc.aliases,
     collabCount: doc.collabCount,
   };
+}
+
+type PropertyExtras = { featuredOrder?: number | null; image?: StoredImage };
+
+/** Home placement fields of a property in the admin form (lists, search, create/update/merge). */
+export function propertyAdminFields(doc: PropertyExtras) {
+  return { featuredOrder: doc.featuredOrder ?? null, image: adminImage(doc.image) };
 }

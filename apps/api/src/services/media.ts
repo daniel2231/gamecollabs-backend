@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import sharp, { type OutputInfo } from "sharp";
 import { Collab, type CollabDoc } from "../models/collab.js";
+import { Property } from "../models/entities.js";
 import { HttpError } from "../lib/errors.js";
 import { revalidate } from "../lib/outbound.js";
 import { safeFetch } from "../lib/safeFetch.js";
@@ -89,13 +90,14 @@ export async function storeUpload(buf: Buffer): Promise<{ storageKey: string; ur
 }
 
 /**
- * Deletes uploaded covers (`covers/…`) that no collab points to and that are older
+ * Deletes uploaded images (`covers/…`) that no collab cover or property image points to and that are older
  * than `graceDays`, so an upload whose collab was never saved does not stay forever.
  * The grace period also keeps a recently replaced cover available for undoing an edit.
  */
 export async function cleanupUploads(graceDays = 7, now = new Date()) {
   if (!storageEnabled()) return { skipped: true };
-  const used = new Set((await Collab.distinct("cover.storageKey")).filter((k): k is string => typeof k === "string"));
+  const keys = [...(await Collab.distinct("cover.storageKey")), ...(await Property.distinct("image.storageKey"))];
+  const used = new Set(keys.filter((k): k is string => typeof k === "string"));
   const cutoff = now.getTime() - graceDays * 86_400_000;
   const orphans = (await listObjects(UPLOAD_PREFIX))
     .filter((o) => !used.has(o.key) && o.lastModified && o.lastModified.getTime() < cutoff)

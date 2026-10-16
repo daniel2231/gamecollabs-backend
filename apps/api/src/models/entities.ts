@@ -29,6 +29,21 @@ function deriveKeys(doc: Named & { nameKeys: string[]; searchTokens: string[] })
   doc.searchTokens = indexTokens(...names);
 }
 
+const str = { type: String, default: null };
+
+/** Same shape as a collab cover (storage key or original URL, credit, bilingual alt, size). */
+const imageSchema = new Schema(
+  {
+    storageKey: str,
+    originalUrl: str,
+    credit: str,
+    alt: { type: new Schema({ ko: str, en: str }, { _id: false }), default: () => ({}) },
+    width: { type: Number, default: null },
+    height: { type: Number, default: null },
+  },
+  { _id: false },
+);
+
 const propertySchema = new Schema(
   {
     ...entityFields,
@@ -36,6 +51,9 @@ const propertySchema = new Schema(
     kind: { type: String, required: true },
     parentId: { type: Schema.Types.ObjectId, ref: "Property", default: null },
     officialUrl: { type: String, default: null },
+    /** Position on the home "browse by IP" row (1–999, smaller first); null = not shown. */
+    featuredOrder: { type: Number, default: null, min: 1, max: 999 },
+    image: { type: imageSchema, default: null },
   },
   { timestamps: true, collection: "properties" },
 );
@@ -57,6 +75,8 @@ for (const schema of [propertySchema, companySchema]) {
     deriveKeys(this as unknown as Named & { nameKeys: string[]; searchTokens: string[] });
   });
 }
+
+propertySchema.index({ featuredOrder: 1 }, { partialFilterExpression: { featuredOrder: { $gte: 1 } } });
 
 export type PropertyDoc = HydratedDocument<InferSchemaType<typeof propertySchema>>;
 export type CompanyDoc = HydratedDocument<InferSchemaType<typeof companySchema>>;
