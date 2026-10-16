@@ -62,6 +62,38 @@ describe("admin: featuredOrder and image", () => {
     expect(tags()).toContain("featured");
   });
 
+  it("stores an empty credit and an empty alt as null", async () => {
+    const res = await as(admin)
+      .patch(`/v1/admin/properties/${e.blood.id}`)
+      .send({ image: { storageKey: "covers/b.webp", originalUrl: null, credit: "  ", alt: { ko: "", en: "" }, width: 800, height: 1000 } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.image).toEqual({ storageKey: "covers/b.webp", url: "https://media.example.com/covers/b.webp", originalUrl: null, credit: null, alt: null, width: 800, height: 1000 });
+    // Alt in only one language is still rejected, like a collab cover.
+    const half = await as(admin).patch(`/v1/admin/properties/${e.blood.id}`).send({ image: { storageKey: "covers/b.webp", alt: { ko: "설명", en: "" } } });
+    expect(half.status).toBe(422);
+    expect(half.body.error.fields["image.alt.en"]).toBeDefined();
+    await as(admin).patch(`/v1/admin/properties/${e.blood.id}`).send({ image: null });
+  });
+
+  it("treats documents saved before these fields existed as null", async () => {
+    await Property.collection.updateOne({ slug: "taiko-no-tatsujin" }, { $unset: { featuredOrder: "", image: "" } });
+    const list = await as(admin).get("/v1/admin/properties");
+    expect(list.body.data.find((p: { slug: string }) => p.slug === "taiko-no-tatsujin")).toMatchObject({ featuredOrder: null, image: null });
+    const res = await as(admin).patch(`/v1/admin/properties/${e.taiko.id}`).send({ aliases: ["Taiko"] });
+    expect(res.body.data).toMatchObject({ featuredOrder: null, image: null });
+  });
+
+  it("never adds the fields to company responses", async () => {
+    const created = await as(admin).post("/v1/admin/companies").send({ slug: "kodansha", name: { ko: "고단샤", en: "Kodansha" }, country: "JP" });
+    expect(created.status).toBe(201);
+    const patched = await as(admin).patch(`/v1/admin/companies/${created.body.data._id}`).send({ aliases: ["講談社"] });
+    const list = await as(admin).get("/v1/admin/companies");
+    for (const item of [created.body.data, patched.body.data, ...list.body.data]) {
+      expect(item).not.toHaveProperty("featuredOrder");
+      expect(item).not.toHaveProperty("image");
+    }
+  });
+
   it("validates featuredOrder (1–999 integer) and image (storageKey or originalUrl)", async () => {
     for (const featuredOrder of [0, 1000, 1.5, "1"]) {
       const res = await as(admin).patch(`/v1/admin/properties/${e.aot.id}`).send({ featuredOrder });
@@ -148,21 +180,21 @@ describe("GET /v1/properties?featured=true", () => {
       collabCount: 2,
       counterpartCount: 2,
       ongoingCount: 1,
-      image: { url: "https://media.example.com/covers/aot.webp", credit: "© Hajime Isayama", alt: "진격의 거인 대표 이미지" },
+      image: { url: "https://media.example.com/covers/aot.webp", originalUrl: null, credit: "© Hajime Isayama", alt: "진격의 거인 대표 이미지", width: 1200, height: 1200 },
       latestCover: { url: "https://media.example.com/covers/sep.webp", originalUrl: null, credit: "© KRAFTON", alt: "9월", width: 1600, height: 900 },
     });
     expect(ko.body.data[0]).toMatchObject({ slug: "jagariko", collabCount: 0, counterpartCount: 0, ongoingCount: 0, image: null, latestCover: null });
     expect(ko.body.data[1]).toMatchObject({ slug: "pubg-mobile", collabCount: 1, counterpartCount: 1, ongoingCount: 1 });
 
     const en = await service().get("/v1/properties?featured=true&locale=en");
-    // In English the 3s order by English name: Attack on Titan < PUBG Mobile.
-    expect(en.body.data.map((p: { slug: string }) => p.slug)).toEqual(["jagariko", "attack-on-titan", "pubg-mobile", "one-piece"]);
-    expect(en.body.data[1]).toMatchObject({ name: "Attack on Titan", image: { alt: "Attack on Titan key art" }, latestCover: { alt: "September" } });
+    // Ties order by the Korean name in every locale.
+    expect(en.body.data.map((p: { slug: string }) => p.slug)).toEqual(["jagariko", "pubg-mobile", "attack-on-titan", "one-piece"]);
+    expect(en.body.data[2]).toMatchObject({ name: "Attack on Titan", image: { alt: "Attack on Titan key art" }, latestCover: { alt: "September" } });
   });
 
   it("gives null alt when none is stored, and requires featured=true", async () => {
     const res = await service().get("/v1/properties?featured=true");
-    expect(res.body.data.find((p: { slug: string }) => p.slug === "one-piece").image).toEqual({ url: "https://example.com/op.png", credit: null, alt: null });
+    expect(res.body.data.find((p: { slug: string }) => p.slug === "one-piece").image).toEqual({ url: "https://example.com/op.png", originalUrl: "https://example.com/op.png", credit: null, alt: null, width: null, height: null });
     expect((await service().get("/v1/properties")).status).toBe(422);
   });
 });

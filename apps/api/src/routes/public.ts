@@ -59,7 +59,7 @@ async function entityPage(type: EntityType, slug: string, locale: LocaleT) {
 publicRouter.get("/properties", async (req, res) => {
   const { locale } = parse(PropertyListQuery, req.query);
   const now = new Date();
-  const [tax, rows] = await Promise.all([taxonomy(), featuredProperties(locale, now)]);
+  const [tax, rows] = await Promise.all([taxonomy(), featuredProperties(now)]);
   res.json({
     data: rows.map(({ property, collabCount, counterpartCount, ongoingCount, latestCover }) => ({
       slug: property.slug,
@@ -69,17 +69,11 @@ publicRouter.get("/properties", async (req, res) => {
       collabCount,
       counterpartCount,
       ongoingCount,
-      image: imageOf(property.image, locale),
+      image: publicImage(property.image, locale),
       latestCover: publicImage(latestCover, locale),
     })),
   });
 });
-
-/** Public form of a property image (`url`, `credit`, `alt` in the requested language). */
-function imageOf(image: Parameters<typeof publicImage>[0], locale: LocaleT) {
-  const img = publicImage(image, locale);
-  return img && { url: img.url, credit: img.credit, alt: img.alt };
-}
 
 publicRouter.get("/properties/:slug", async (req, res) => {
   const { locale } = parse(LocaleQuery, req.query);
