@@ -226,4 +226,5 @@ docker compose exec api node dist/cli/index.js seed-taxonomy
 - 호스트 포트를 열지 않습니다. Cloudflare Tunnel에서 `api.<도메인>` → `http://api:3000`, `mcp.<도메인>` → `http://mcp:3001`로 연결하고, WAF로 `/v1/admin/*`, `/v1/ingest/*`, `/mcp`에 횟수 제한을 겁니다.
 - MongoDB는 Compose 내부 네트워크에만 있고 인증 없이 돕니다. 포트를 외부에 열지 마세요.
 - `main`에 푸시하면 CI가 테스트 후 `ghcr.io/<owner>/gamecollabs-{api,mcp}` 이미지를 올립니다.
+  서버는 자동으로 갱신하지 않으므로, 이미지가 올라오면 `deploy`에서 `docker compose pull api mcp && docker compose up -d api mcp`로 바꿉니다.
 - 클라우드 이전 때는 `READ_ONLY_MODE=true`로 쓰기를 막고 `mongodump`/`mongorestore` 후 `MONGODB_URI`와 DNS만 바꿉니다.
