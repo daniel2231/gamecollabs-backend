@@ -1,6 +1,7 @@
 import { Router, type Request, type RequestHandler } from "express";
 import multer from "multer";
 import { z } from "zod";
+import type { Types } from "mongoose";
 import {
   AdminCollabListQuery,
   CollabInput,
@@ -15,12 +16,15 @@ import {
   ObjectIdString,
   PropertyInput,
   PropertyPatch,
+  SUBMISSION_KINDS,
+  SUBMISSION_STATUSES,
   TaxonomyTermInput,
   TaxonomyTermPatch,
   TransitionInput,
 } from "@gamecollabs/schema";
 import { principal, requireScope } from "../auth/principal.js";
 import { HttpError, badRequest, notFound, parse } from "../lib/errors.js";
+import { Collab } from "../models/collab.js";
 import { IngestRun, Submission } from "../models/support.js";
 import {
   createDraft,
@@ -227,16 +231,59 @@ adminRouter.get("/ingest-runs", requireScope("ops:read"), async (req, res) => {
   res.json({ data: await IngestRun.find().sort({ createdAt: -1 }).limit(limit).lean() });
 });
 
+const SubmissionListQuery = PageQuery.extend({
+  status: z.enum(SUBMISSION_STATUSES).optional(),
+  kind: z.enum(SUBMISSION_KINDS).optional(),
+});
+
+type SubmissionDoc = {
+  _id: Types.ObjectId;
+  kind?: string | null;
+  status: string;
+  url?: string | null;
+  note?: string | null;
+  locale?: string | null;
+  collabId?: Types.ObjectId | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** Submissions with the linked collab (correction target, or the collab made from a tip) resolved for the queue. */
+async function serializeSubmissions(docs: SubmissionDoc[]) {
+  const ids = [...new Set(docs.flatMap((d) => (d.collabId ? [String(d.collabId)] : [])))];
+  const collabs = ids.length ? await Collab.find({ _id: { $in: ids } }, { slug: 1, status: 1, i18n: 1 }).lean() : [];
+  const byId = new Map(collabs.map((c) => [String(c._id), c]));
+  return docs.map((d) => {
+    const c = d.collabId ? byId.get(String(d.collabId)) : undefined;
+    return {
+      id: String(d._id),
+      kind: d.kind ?? "tip",
+      status: d.status,
+      url: d.url ?? null,
+      note: d.note ?? null,
+      locale: d.locale ?? null,
+      collab: c ? { id: String(c._id), slug: c.slug, status: c.status, title: { ko: c.i18n?.ko?.title ?? "", en: c.i18n?.en?.title ?? "" } } : null,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    };
+  });
+}
+
 adminRouter.get("/submissions", requireScope("ops:read"), async (req, res) => {
-  const { limit } = parse(PageQuery, req.query);
-  const { status } = parse(z.object({ status: z.enum(["new", "accepted", "dismissed"]).optional() }), req.query);
-  res.json({ data: await Submission.find(status ? { status } : {}).sort({ createdAt: -1 }).limit(limit).lean() });
+  const { limit, status, kind } = parse(SubmissionListQuery, req.query);
+  const [docs, open] = await Promise.all([
+    Submission.find({ ...(status ? { status } : {}), ...(kind ? { kind } : {}) }).sort({ createdAt: -1 }).limit(limit).lean<SubmissionDoc[]>(),
+    // Open reports per kind; documents from before `kind` existed are tips.
+    Submission.aggregate<{ _id: string; n: number }>([{ $match: { status: "new" } }, { $group: { _id: { $ifNull: ["$kind", "tip"] }, n: { $sum: 1 } } }]),
+  ]);
+  const counts = Object.fromEntries(SUBMISSION_KINDS.map((k) => [k, open.find((o) => o._id === k)?.n ?? 0]));
+  res.json({ data: await serializeSubmissions(docs), meta: { counts } });
 });
 
 adminRouter.patch("/submissions/:id", requireScope("collabs:submit"), async (req, res) => {
-  const body = parse(z.object({ status: z.enum(["new", "accepted", "dismissed"]), collabId: z.string().regex(/^[a-f0-9]{24}$/).optional() }), req.body);
+  const body = parse(z.object({ status: z.enum(SUBMISSION_STATUSES), collabId: ObjectIdString.optional() }), req.body);
   const { id } = parse(z.object({ id: ObjectIdString }), req.params);
-  const doc = await Submission.findByIdAndUpdate(id, body, { returnDocument: "after" }).lean();
+  const doc = await Submission.findByIdAndUpdate(id, body, { returnDocument: "after" }).lean<SubmissionDoc>();
   if (!doc) throw notFound("submission");
-  res.json({ data: doc });
+  res.json({ data: (await serializeSubmissions([doc]))[0] });
 });
