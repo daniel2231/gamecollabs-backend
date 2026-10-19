@@ -99,12 +99,31 @@ export type IngestResponse = {
   summary: { created: number; duplicate: number; rejected: number };
 };
 
-export const SubmissionInput = z.object({
-  url: HttpUrl,
-  note: z.string().trim().max(1000).optional(),
-  locale: z.enum(["ko", "en"]).optional(),
-  /** Honeypot: must be empty. */
-  website: z.string().max(0, "spam").optional(),
-  turnstileToken: z.string().max(4096).optional(),
-});
+export const SUBMISSION_KINDS = ["tip", "correction"] as const;
+export const SUBMISSION_STATUSES = ["new", "accepted", "dismissed"] as const;
+
+/**
+ * Visitor report relayed by the Next.js server.
+ * tip: a collab we do not list yet (url required).
+ * correction: something wrong on a published collab (collab slug and note required, url optional).
+ */
+export const SubmissionInput = z
+  .object({
+    kind: z.enum(SUBMISSION_KINDS).default("tip"),
+    url: HttpUrl.optional(),
+    collab: Slug.optional(),
+    note: z.string().trim().max(1000).optional(),
+    locale: z.enum(["ko", "en"]).optional(),
+    /** Honeypot: must be empty. */
+    website: z.string().max(0, "spam").optional(),
+    turnstileToken: z.string().max(4096).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.kind === "tip") {
+      if (!v.url) ctx.addIssue({ code: "custom", path: ["url"], message: "required" });
+      return;
+    }
+    if (!v.collab) ctx.addIssue({ code: "custom", path: ["collab"], message: "required" });
+    if (!v.note || v.note.length < 5) ctx.addIssue({ code: "custom", path: ["note"], message: "describe what is wrong (5+ characters)" });
+  });
 export type SubmissionInput = z.infer<typeof SubmissionInput>;

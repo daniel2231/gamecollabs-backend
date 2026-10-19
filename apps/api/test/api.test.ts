@@ -395,3 +395,41 @@ describe("taxonomy admin", () => {
     expect((await as(admin).post("/v1/admin/taxonomies").send(body)).status).toBe(409);
   });
 });
+
+describe("submissions", () => {
+  const visitor = (ip: string) => ({ post: (url: string) => service().post(url).set("x-client-ip", ip) });
+
+  it("queues tips once per open url and lists them for admins", async () => {
+    const tip = { url: "https://example.com/news/new-collab?utm_source=x", note: "new one", locale: "ko" };
+    expect((await visitor("10.0.0.1").post("/v1/submissions").send(tip)).status).toBe(202);
+    expect((await visitor("10.0.0.1").post("/v1/submissions").send(tip)).status).toBe(202);
+    const res = await as(admin).get("/v1/admin/submissions?kind=tip&status=new");
+    expect(res.status).toBe(200);
+    const rows = res.body.data.filter((s: { url: string }) => s.url.startsWith("https://example.com/news/new-collab"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "tip", status: "new", note: "new one", collab: null });
+    expect(res.body.meta.counts.tip).toBeGreaterThanOrEqual(1);
+    expect((await visitor("10.0.0.1").post("/v1/submissions").send({ note: "no url" })).status).toBe(422);
+    expect((await visitor("10.0.0.1").post("/v1/submissions").send({ ...tip, website: "spam" })).status).toBe(422);
+  });
+
+  it("links corrections to a published collab", async () => {
+    const collab = await createAndPublish(
+      draftBody(e.blood.id, e.aot.id, { sources: [{ url: "https://example.com/blood-report" }], period: { start: "2026-03-01", end: "2026-03-31" } }),
+    );
+    const report = { kind: "correction", collab: collab.slug, note: "The end date was announced as 3/31.", locale: "en" };
+    expect((await visitor("10.0.0.2").post("/v1/submissions").send(report)).status).toBe(202);
+    expect((await visitor("10.0.0.2").post("/v1/submissions").send({ ...report, note: "bad" })).status).toBe(422);
+    expect((await visitor("10.0.0.2").post("/v1/submissions").send({ ...report, collab: "no-such-collab" })).status).toBe(404);
+
+    const list = await as(editor).get("/v1/admin/submissions?kind=correction");
+    const row = list.body.data.find((s: { collab: { slug: string } | null }) => s.collab?.slug === collab.slug);
+    expect(row).toMatchObject({ kind: "correction", url: null, note: report.note, collab: { id: collab.id, status: "published" } });
+    expect(row.collab.title.ko).toBeTruthy();
+
+    const done = await as(editor).patch(`/v1/admin/submissions/${row.id}`).send({ status: "accepted" });
+    expect(done.status).toBe(200);
+    expect(done.body.data).toMatchObject({ id: row.id, status: "accepted", collab: { slug: collab.slug } });
+    expect((await service().get("/v1/admin/submissions")).status).toBe(403);
+  });
+});

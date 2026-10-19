@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { Router } from "express";
+import type { Types } from "mongoose";
 import { rateLimit } from "express-rate-limit";
 import { SubmissionInput } from "@gamecollabs/schema";
 import { config } from "../config.js";
 import { requireScope } from "../auth/principal.js";
-import { HttpError, parse } from "../lib/errors.js";
+import { HttpError, notFound, parse } from "../lib/errors.js";
 import { normalizeUrl } from "../lib/url.js";
+import { Collab } from "../models/collab.js";
 import { Submission } from "../models/support.js";
 
 export const submissionsRouter: Router = Router();
@@ -41,12 +43,23 @@ submissionsRouter.post(
     const input = parse(SubmissionInput, req.body);
     const ip = clientIp(req);
     if (!(await verifyTurnstile(input.turnstileToken, ip))) throw new HttpError(400, "bot_check_failed");
-    const url = normalizeUrl(input.url);
-    const existing = await Submission.findOne({ url, status: "new" }).lean();
+    const url = input.url ? normalizeUrl(input.url) : null;
+    const note = input.note || null;
+    let collabId: Types.ObjectId | null = null;
+    if (input.kind === "correction") {
+      const collab = await Collab.findOne({ slug: input.collab, status: "published" }, { _id: 1 }).lean();
+      if (!collab) throw notFound("collab");
+      collabId = collab._id;
+    }
+    // A repeated report that is still open is accepted silently instead of queued twice.
+    const duplicateOf: Record<string, unknown> = input.kind === "tip" ? { kind: "tip", url } : { kind: "correction", collabId, note };
+    const existing = await Submission.findOne({ ...duplicateOf, status: "new" }, { _id: 1 }).lean();
     if (!existing) {
       await Submission.create({
+        kind: input.kind,
         url,
-        note: input.note ?? null,
+        note,
+        collabId,
         locale: input.locale ?? null,
         ipHash: createHash("sha256").update(`${ip}:${config().ADMIN_JWT_SECRET}`).digest("hex").slice(0, 32),
       });

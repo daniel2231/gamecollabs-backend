@@ -39,7 +39,10 @@ export const Revision = model("Revision", revisionSchema);
 
 const submissionSchema = new Schema(
   {
-    url: { type: String, required: true },
+    /** tip: a collab we do not list yet. correction: an error on a published collab (collabId is that collab). */
+    kind: { type: String, enum: ["tip", "correction"], default: "tip" },
+    /** Required for tips; optional source link for corrections. */
+    url: { type: String, default: null },
     note: { type: String, default: null },
     locale: { type: String, default: null },
     /** sha256(ip + secret) so abuse can be traced without storing the address. */
@@ -50,6 +53,7 @@ const submissionSchema = new Schema(
   { timestamps: true, collection: "submissions" },
 );
 submissionSchema.index({ status: 1, createdAt: -1 });
+submissionSchema.index({ kind: 1, status: 1, createdAt: -1 });
 export const Submission = model("Submission", submissionSchema);
 
 const ingestRunSchema = new Schema(

@@ -56,7 +56,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
 | GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 월별 건수, 분류별 분포 |
 | GET | `/v1/sitemap` | 발행된 콜라보 slug·updatedAt과 그 콜라보에 나오는 작품·회사 slug·updatedAt (작품·회사는 자기 수정 시각과 발행된 콜라보 중 가장 최근 수정 시각 중 늦은 쪽) |
-| POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증) |
+| POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증). `kind: "tip"`(기본, 새 콜라보: `url` 필수, `note` 선택) 또는 `kind: "correction"`(발행된 콜라보의 오류: `collab` slug와 5자 이상 `note` 필수, 근거 `url` 선택, 없는 콜라보면 404). 아직 열린 같은 제보(같은 URL의 tip, 같은 콜라보·내용의 correction)는 다시 쌓지 않고 202 |
 | GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
@@ -67,7 +67,8 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
 | GET/POST/PATCH | `/v1/admin/taxonomies` | 분류값 관리 (추가·수정은 관리자만) |
-| GET | `/v1/admin/ingest-runs`, `/v1/admin/submissions` | 수집 실행 기록, 제보 큐 |
+| GET | `/v1/admin/ingest-runs` | 수집 실행 기록 |
+| GET/PATCH | `/v1/admin/submissions[/:id]` | 제보 큐(`?status=new\|accepted\|dismissed&kind=tip\|correction&limit=`, 최신순, `meta.counts` 종류별 미처리 건수). 항목은 `{ id, kind, status, url, note, locale, collab: { id, slug, status, title: { ko, en } } \| null, createdAt, updatedAt }`. `PATCH { status, collabId? }`로 처리(tip에서 만든 콜라보를 `collabId`로 연결) |
 | POST | `/v1/ingest/:channel` | 수집 채널. `candidates`: 후보 최대 20건 → 건별 `created`/`duplicate`/`rejected` |
 | GET | `/v1/ingest/lookup/entities`, `/v1/ingest/lookup/collabs` | 수집기용 최소 정보 조회 |
 
