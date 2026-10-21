@@ -1,4 +1,4 @@
-import { Schema, model, type HydratedDocument, type InferSchemaType } from "mongoose";
+import { Schema, model, type ClientSession, type HydratedDocument, type InferSchemaType, type Types } from "mongoose";
 import {
   COLLAB_STATUSES,
   COMPANY_ROLES,
@@ -12,7 +12,8 @@ import {
 import { indexTokens } from "../lib/text.js";
 import { untilOf } from "../lib/period.js";
 import { followUpReasonOf, followUpReset } from "../lib/followUp.js";
-import { taxonomy } from "../services/taxonomy.js";
+import { taxonomy, type TaxonomyIndex } from "../services/taxonomy.js";
+import { Property } from "./entities.js";
 
 const str = { type: String, default: null };
 
@@ -91,6 +92,7 @@ const collabSchema = new Schema(
     companies: { type: [companyRefSchema], default: [] },
     category: str,
     regions: { type: [String], default: [] },
+    /** Copy of the host game's platforms (derived on save, kept in sync when the game changes). */
     platforms: { type: [String], default: [] },
     collabTypes: { type: [String], default: [] },
     facetKeys: { type: [String], default: [] },
@@ -174,17 +176,39 @@ export function collabSearchTokens(doc: Pick<CollabFields, "i18n" | "parties" | 
   );
 }
 
+/** Platforms of the host game(s), in party order. */
+export async function hostPlatforms(parties: { role: string; propertyId?: Types.ObjectId | null }[], session?: ClientSession | null): Promise<string[]> {
+  const ids = parties.filter((p) => p.role === "host" && p.propertyId).map((p) => p.propertyId!);
+  if (!ids.length) return [];
+  const props = await Property.find({ _id: { $in: ids } }, { platforms: 1 }, { session }).lean();
+  const byId = new Map(props.map((p) => [p._id.toString(), p.platforms]));
+  return [...new Set(ids.flatMap((id) => byId.get(id.toString()) ?? []))];
+}
+
+type Faceted = Pick<CollabFields, "category" | "regions" | "platforms" | "collabTypes" | "parties">;
+
+/** Classification keys + all ancestors + partner kinds. */
+export function facetKeysOf(doc: Faceted, terms: TaxonomyIndex): string[] {
+  return terms.expand([
+    ...(doc.category ? [doc.category] : []),
+    ...doc.regions,
+    ...doc.platforms,
+    ...doc.collabTypes,
+    ...doc.parties.filter((p) => p.role === "partner" && p.kind).map((p) => p.kind!),
+  ]);
+}
+
 /**
- * Before validation: check every taxonomy key against `taxonomy_terms`,
- * then derive `facetKeys` (keys + all ancestors + partner kinds),
- * `searchTokens` and `period.until`.
+ * Before validation: copy the host game's platforms, check every taxonomy key
+ * against `taxonomy_terms`, then derive `facetKeys`, `searchTokens` and `period.until`.
  */
 collabSchema.pre("validate", async function () {
   const terms = await taxonomy();
+  // Checked on the game; a key deprecated since then must not block saving its collabs.
+  this.platforms = await hostPlatforms(this.parties, this.$session());
   const fields = [
     ["category", "category", this.category ? [this.category] : []],
     ["regions", "region", this.regions],
-    ["platforms", "platform", this.platforms],
     ["collabTypes", "collab_type", this.collabTypes],
     ["parties", "partner_category", this.parties.map((p) => p.kind).filter((k): k is string => !!k)],
   ] as const;
@@ -196,14 +220,7 @@ collabSchema.pre("validate", async function () {
     }
   }
 
-  const facetSources = [
-    ...(this.category ? [this.category] : []),
-    ...this.regions,
-    ...this.platforms,
-    ...this.collabTypes,
-    ...this.parties.filter((p) => p.role === "partner" && p.kind).map((p) => p.kind!),
-  ];
-  this.facetKeys = terms.expand(facetSources);
+  this.facetKeys = facetKeysOf(this, terms);
   this.searchTokens = collabSearchTokens(this);
   this.set("period.until", untilOf(this.period?.end ?? null, (this.period?.precision ?? "unknown") as "day" | "month" | "unknown"));
 

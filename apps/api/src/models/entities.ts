@@ -51,6 +51,8 @@ const propertySchema = new Schema(
     kind: { type: String, required: true },
     parentId: { type: Schema.Types.ObjectId, ref: "Property", default: null },
     officialUrl: { type: String, default: null },
+    /** Games only: platform keys the game ships on, most specific known; copied to the collabs it hosts. */
+    platforms: { type: [String], default: [] },
     /** Position on the home "browse by IP" row (1–999, smaller first); null = not shown. */
     featuredOrder: { type: Number, default: null, min: 1, max: 999 },
     image: { type: imageSchema, default: null },

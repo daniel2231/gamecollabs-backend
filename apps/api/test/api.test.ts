@@ -69,10 +69,10 @@ describe("collab workflow", () => {
   });
 
   it("rejects unknown taxonomy keys with the error envelope", async () => {
-    const res = await as(admin).post("/v1/admin/collabs").send(draftBody(e.pubg.id, e.aot.id, { platforms: ["platform.n64"] }));
+    const res = await as(admin).post("/v1/admin/collabs").send(draftBody(e.pubg.id, e.aot.id, { regions: ["region.atlantis"] }));
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe("validation_failed");
-    expect(res.body.error.fields.platforms[0]).toMatch(/unknown taxonomy key/);
+    expect(res.body.error.fields.regions[0]).toMatch(/unknown taxonomy key/);
   });
 
   it("reports duplicate candidates on create", async () => {
@@ -182,7 +182,6 @@ describe("public API", () => {
         },
         category: "category.brand_campaign",
         regions: ["region.japan"],
-        platforms: ["platform.arcade"],
         collabTypes: ["collab_type.music"],
         period: { start: "2026-10-05", end: "2027-01-11" },
         sources: [{ url: "https://www.calbee.co.jp/taiko/" }],
@@ -371,6 +370,48 @@ describe("entities", () => {
     const after = await Collab.findById(draft.body.data.id).lean();
     expect(after!.parties[1]!.propertyId!.toString()).toBe(target!.id);
     expect(await Property.exists({ _id: dup.body.data._id })).toBeNull();
+  });
+
+  it("keeps platforms on the game and shows them on every collab it hosts", async () => {
+    const created = await as(admin)
+      .post("/v1/admin/properties")
+      .send({ slug: "platform-game", kind: "partner_category.game", name: { ko: "플랫폼 게임", en: "Platform Game" }, platforms: ["platform.mobile", "platform.android", "platform.pc"] });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    // Generic keys next to a more specific one are dropped.
+    expect(created.body.data.platforms).toEqual(["platform.android", "platform.pc"]);
+    const notGame = await as(admin).post("/v1/admin/properties").send({ slug: "platform-anime", kind: "partner_category.anime_manga", name: { ko: "애니", en: "Anime" }, platforms: ["platform.pc"] });
+    expect(notGame.status).toBe(400);
+    expect(notGame.body.error.code).toBe("invalid_platforms");
+
+    const gameId = created.body.data._id;
+    // A collab's own platforms are ignored: it shows the host game's.
+    const one = await createAndPublish(draftBody(gameId, e.aot.id, { platforms: ["platform.xbox"], sources: [{ url: "https://example.com/platform-1" }] }));
+    const two = await createAndPublish(draftBody(gameId, e.jagariko.id, { sources: [{ url: "https://example.com/platform-2" }], period: { start: "2026-12-01" } }));
+    for (const c of [one, two]) expect((await Collab.findById(c.id).lean())!.platforms).toEqual(["platform.android", "platform.pc"]);
+
+    const patched = await as(admin).patch(`/v1/admin/properties/${gameId}`).send({ platforms: ["platform.android", "platform.ios", "platform.ps5"] });
+    expect(patched.status, JSON.stringify(patched.body)).toBe(200);
+    const both = [one.slug, two.slug].sort();
+    const ps = await service().get("/v1/collabs?platform=platform.playstation");
+    expect(ps.body.data.map((c: { slug: string }) => c.slug).filter((s: string) => both.includes(s)).sort()).toEqual(both);
+    const pc = await service().get("/v1/collabs?platform=platform.pc");
+    expect(pc.body.data.map((c: { slug: string }) => c.slug)).not.toContain(one.slug);
+    const detail = await service().get(`/v1/collabs/${one.slug}?locale=en`);
+    expect(detail.body.data.platforms.map((p: { key: string }) => p.key)).toEqual(["platform.android", "platform.ios", "platform.ps5"]);
+    const page = await service().get("/v1/properties/platform-game?locale=en");
+    expect(page.body.data.platforms).toEqual([
+      { key: "platform.android", label: "Android" },
+      { key: "platform.ios", label: "iOS" },
+      { key: "platform.ps5", label: "PlayStation 5" },
+    ]);
+
+    // Merging: a target without platforms takes the absorbed game's, and its collabs follow.
+    const bare = await as(admin).post("/v1/admin/properties").send({ slug: "platform-game-2", kind: "partner_category.game", name: { ko: "플랫폼 게임 2", en: "Platform Game 2" } });
+    const merged = await as(admin).post(`/v1/admin/properties/${bare.body.data._id}/merge`).send({ from: gameId });
+    expect(merged.status).toBe(200);
+    expect(merged.body.data.platforms).toEqual(["platform.android", "platform.ios", "platform.ps5"]);
+    expect((await Collab.findById(two.id).lean())!.platforms).toEqual(["platform.android", "platform.ios", "platform.ps5"]);
+    await Collab.deleteMany({ _id: { $in: [one.id, two.id] } });
   });
 
   it("lists every entity when no query is given", async () => {

@@ -35,6 +35,9 @@ role: developer (makes the game), publisher (publishes/operates it), licensor (o
 brand_partner (brand, food & beverage, retail), organizer (venue or event operator).
 For offline collabs (cafés, pop-up stores, events, shop campaigns) add venues: the official venue
 name in Korean and English, the address as officially written, and the venue page URL if any.
+platforms describe the game, not the collab: list every platform the game is on, as specific as the
+source allows (Android and iOS rather than Mobile, PS5 rather than PlayStation). They set up a game
+the server creates; for an existing game they are only suggestions for the reviewer.
 
 Follow-ups: collabs announced without dates (start not out, only the month known, end not announced)
 are re-checked on a schedule. list_followups returns the ones due; look each up again (official site,
@@ -334,7 +337,7 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     "create_entity",
     {
       title: "Create a game/IP or company (admin)",
-      description: "Creates a property (game/IP: slug, kind = partner_category key, name {ko,en,original?}, aliases) or a company (slug, name, aliases, country). Check find_entity first to avoid duplicates.",
+      description: "Creates a property (game/IP: slug, kind = partner_category key, name {ko,en,original?}, aliases; games also take platforms = platform keys, as specific as known, e.g. platform.android, platform.ps5) or a company (slug, name, aliases, country). Check find_entity first to avoid duplicates.",
       inputSchema: { kind: Kind, data: z.union([PropertyInput, CompanyInput]) },
       annotations: write,
     },
@@ -345,7 +348,7 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     "update_entity",
     {
       title: "Update a game/IP or company (admin)",
-      description: "Renames or edits a property or company (fields given replace stored ones). A slug change keeps the old slug as a redirect; collabs referencing it are updated.",
+      description: "Renames or edits a property or company (fields given replace stored ones). A slug change keeps the old slug as a redirect; collabs referencing it are updated. Platforms are set on the game (platforms = complete list of platform keys) and every collab it hosts shows them.",
       inputSchema: { kind: Kind, id: EntityId, patch: z.union([PropertyPatch, CompanyPatch]) },
       annotations: { ...write, idempotentHint: true },
     },

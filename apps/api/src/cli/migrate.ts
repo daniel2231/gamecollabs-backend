@@ -276,6 +276,16 @@ export async function migrateMdx(opts: MigrateOptions) {
     companyIds.set(key, doc);
   }
 
+  // Platforms belong to the game: each file adds its platforms to its game, and the collabs copy them on save.
+  const gamePlatforms = new Map<string, string[]>();
+  for (const p of plans) gamePlatforms.set(nameKey(p.game.en), [...(gamePlatforms.get(nameKey(p.game.en)) ?? []), ...p.keys.platforms!]);
+  for (const [key, platforms] of gamePlatforms) {
+    const game = propertyIds.get(key)!;
+    if (!platforms.length || !tax.expand([game!.kind]).includes("partner_category.game")) continue;
+    game!.platforms = tax.mostSpecific([...game!.platforms, ...platforms]);
+    if (game!.isModified()) await game!.save();
+  }
+
   for (const p of plans) {
     const d = p.item.data;
     const game = propertyIds.get(nameKey(p.game.en))!;
@@ -305,7 +315,6 @@ export async function migrateMdx(opts: MigrateOptions) {
       }),
       category,
       regions: p.keys.regions,
-      platforms: p.keys.platforms,
       collabTypes: p.keys.collabTypes,
       // The MVP cannot tell "permanent" from "undecided": without end_kind a missing end date is `tba`.
       period: toStoredPeriod({ start, end, endKind: end ? "fixed" : endKindOf(d[f.endKind]) }),
@@ -356,7 +365,9 @@ export async function migrateMdx(opts: MigrateOptions) {
     report.written++;
   }
   await recount();
-  report.reconciliation = await reconcile(plans.map((p) => ({ slug: p.slug, start: dateStr(p.item.data[f.start]), end: dateStr(p.item.data[f.end]), keys: p.keys })));
+  // Collab platforms come from the game (union of its files), so they are not compared per file.
+  const fileKeys = ({ platforms: _, ...keys }: Plan["keys"]) => keys;
+  report.reconciliation = await reconcile(plans.map((p) => ({ slug: p.slug, start: dateStr(p.item.data[f.start]), end: dateStr(p.item.data[f.end]), keys: fileKeys(p.keys) })));
   if (opts.reportPath) await writeFile(opts.reportPath, JSON.stringify(report, null, 2));
   return { ...report, aborted: false };
 }
@@ -377,7 +388,7 @@ async function reconcile(expected: { slug: string; start: string | null; end: st
     .map((e) => e.slug);
   const count = (list: string[][]) => list.flat().reduce<Record<string, number>>((acc, k) => ((acc[k] = (acc[k] ?? 0) + 1), acc), {});
   const expectedCounts = count(expected.flatMap((e) => Object.values(e.keys)));
-  const storedCounts = count(docs.map((d) => [...(d.category ? [d.category] : []), ...d.regions, ...d.platforms, ...d.collabTypes]));
+  const storedCounts = count(docs.map((d) => [...(d.category ? [d.category] : []), ...d.regions, ...d.collabTypes]));
   const classificationMismatch = Object.keys({ ...expectedCounts, ...storedCounts }).filter((k) => expectedCounts[k] !== storedCounts[k]);
   return { expected: expected.length, stored: docs.length, missing, periodMismatch, classificationMismatch };
 }

@@ -80,10 +80,10 @@ export const as = (token: string) => {
 export async function seedEntities() {
   const [aot, pubg, blood, krafton, taiko, jagariko] = await Promise.all([
     Property.create({ slug: "attack-on-titan", kind: "partner_category.anime_manga", name: { ko: "진격의 거인", en: "Attack on Titan", original: "進撃の巨人" }, aliases: ["AoT", "Shingeki no Kyojin"] }),
-    Property.create({ slug: "pubg-mobile", kind: "partner_category.game", name: { ko: "배틀그라운드 모바일", en: "PUBG Mobile" }, aliases: ["PUBG M"] }),
+    Property.create({ slug: "pubg-mobile", kind: "partner_category.game", name: { ko: "배틀그라운드 모바일", en: "PUBG Mobile" }, aliases: ["PUBG M"], platforms: ["platform.android", "platform.ios"] }),
     Property.create({ slug: "blood-strike", kind: "partner_category.game", name: { ko: "블러드 스트라이크", en: "Blood Strike" } }),
     Company.create({ slug: "krafton", name: { ko: "크래프톤", en: "Krafton" }, country: "KR" }),
-    Property.create({ slug: "taiko-no-tatsujin", kind: "partner_category.game", name: { ko: "태고의 달인", en: "Taiko no Tatsujin" } }),
+    Property.create({ slug: "taiko-no-tatsujin", kind: "partner_category.game", name: { ko: "태고의 달인", en: "Taiko no Tatsujin" }, platforms: ["platform.arcade"] }),
     Property.create({ slug: "jagariko", kind: "partner_category.f_and_b", name: { ko: "자가리코", en: "Jagariko" } }),
   ]);
   return { aot, pubg, blood, krafton, taiko, jagariko };
@@ -101,7 +101,6 @@ export function draftBody(host: string, partner: string, extra: Record<string, u
     ],
     category: "category.in_game",
     regions: ["region.korea", "region.japan"],
-    platforms: ["platform.android", "platform.ios"],
     collabTypes: ["collab_type.cosmetic_item", "collab_type.map_stage"],
     period: { start: "2026-09-01", end: "2026-10-31" },
     sources: [{ url: "https://example.com/news/aot?utm_source=x#top", type: "official" }],

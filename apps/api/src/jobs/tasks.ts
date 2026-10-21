@@ -2,12 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import mongoose from "mongoose";
 import { config } from "../config.js";
-import { Collab } from "../models/collab.js";
+import { Collab, facetKeysOf } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { notify, revalidate } from "../lib/outbound.js";
 import { checkUrl, isReachable } from "../lib/safeFetch.js";
 import { mirrorCover } from "../services/media.js";
-import { snapshotName } from "../services/collabs.js";
+import { snapshotName, syncHostPlatforms } from "../services/collabs.js";
 import { taxonomy } from "../services/taxonomy.js";
 
 async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>) {
@@ -61,7 +61,7 @@ export async function recount() {
   return { properties: props.length, companies: companies.length };
 }
 
-/** Weekly: fixes name/slug snapshots that drifted from their entity. */
+/** Weekly: fixes name/slug snapshots and platform copies that drifted from their entity. */
 export async function consistency() {
   let fixed = 0;
   const tags = new Set<string>();
@@ -87,9 +87,12 @@ export async function consistency() {
       stale.filter((s) => s.status === "published").forEach((s) => tags.add(`collab:${s.slug}`));
     }
   }
+  const platforms = await syncHostPlatforms();
+  platforms.tags.forEach((t) => tags.add(t));
   if (tags.size) revalidate(["collabs", ...tags]);
   if (fixed) notify(`Consistency check fixed ${fixed} stale name snapshot(s)`);
-  return { fixed };
+  if (platforms.updated) notify(`Consistency check fixed ${platforms.updated} stale platform copy(ies)`);
+  return { fixed, platforms: platforms.updated };
 }
 
 /** Recomputes `facetKeys` after taxonomy hierarchy changes. */
@@ -97,13 +100,7 @@ export async function reindexFacets() {
   const tax = await taxonomy();
   let updated = 0;
   for await (const c of Collab.find().select({ category: 1, regions: 1, platforms: 1, collabTypes: 1, parties: 1, facetKeys: 1 }).lean().cursor()) {
-    const keys = tax.expand([
-      ...(c.category ? [c.category] : []),
-      ...c.regions,
-      ...c.platforms,
-      ...c.collabTypes,
-      ...c.parties.filter((p) => p.role === "partner" && p.kind).map((p) => p.kind!),
-    ]);
+    const keys = facetKeysOf(c, tax);
     if (JSON.stringify(keys) !== JSON.stringify(c.facetKeys)) {
       await Collab.updateOne({ _id: c._id }, { $set: { facetKeys: keys } }, { timestamps: false });
       updated++;

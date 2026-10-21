@@ -122,7 +122,7 @@ export const CollabInput = z.object({
   companies: z.array(CompanyRefInput).max(20).default([]),
   category: keyOf("category").nullish(),
   regions: z.array(keyOf("region")).max(30).default([]),
-  platforms: z.array(keyOf("platform")).max(30).default([]),
+  // No `platforms`: a collab shows the platforms of its host game (set them on the game).
   collabTypes: z.array(keyOf("collab_type")).max(30).default([]),
   period: PeriodInput.default({ endKind: "fixed" }),
   sources: z.array(SourceInput).min(1).max(20),

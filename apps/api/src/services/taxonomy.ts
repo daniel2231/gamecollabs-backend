@@ -49,6 +49,13 @@ export class TaxonomyIndex {
     return [...out];
   }
 
+  /** Drops keys that are an ancestor of another listed key (`mobile` next to `android`), de-duplicated, in input order. */
+  mostSpecific(keys: string[]): string[] {
+    const unique = [...new Set(keys)];
+    const covered = new Set(unique.flatMap((k) => this.byKey.get(k)?.ancestors ?? []));
+    return unique.filter((k) => !covered.has(k));
+  }
+
   label(key: string, locale: Locale): string {
     const term = this.byKey.get(key);
     return term ? term.label[locale] || term.label.ko : key;

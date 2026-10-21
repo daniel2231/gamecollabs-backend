@@ -10,7 +10,7 @@ import { HttpError, badRequest, notFound } from "../lib/errors.js";
 import { revalidate } from "../lib/outbound.js";
 import { nameKey } from "../lib/text.js";
 import { search } from "../search/provider.js";
-import { coverOf, recountEntities, snapshotName } from "./collabs.js";
+import { coverOf, recountEntities, snapshotName, syncHostPlatforms } from "./collabs.js";
 import { taxonomy } from "./taxonomy.js";
 
 export type EntityType = "property" | "company";
@@ -31,6 +31,15 @@ async function assertSlugFree(type: EntityType, slug: string, exceptId?: Types.O
   if (clash) throw new HttpError(409, "duplicate_key", "slug already in use", { slug: ["already in use"] });
 }
 
+/** Platform keys of a game, reduced to the most specific ones; other kinds of property have none. */
+async function platformsOf(kind: string, platforms: string[]) {
+  const tax = await taxonomy();
+  const problems = platforms.map((k) => tax.problemWith(k, "platform") && `${k}: ${tax.problemWith(k, "platform")}`).filter(Boolean);
+  if (problems.length) throw badRequest("invalid_platforms", problems.join("; "));
+  if (platforms.length && !tax.expand([kind]).includes("partner_category.game")) throw badRequest("invalid_platforms", "only games have platforms");
+  return tax.mostSpecific(platforms);
+}
+
 type StoredImage = { storageKey?: string | null; originalUrl?: string | null } | null | undefined;
 const hasImage = (image: StoredImage) => !!(image?.storageKey || image?.originalUrl);
 
@@ -43,6 +52,7 @@ export async function createProperty(input: PropertyInput) {
   if (input.parentId && !(await Property.exists({ _id: input.parentId }))) throw badRequest("invalid_parent", "parent not found");
   const doc = await Property.create({
     ...input,
+    platforms: await platformsOf(input.kind, input.platforms),
     parentId: input.parentId ?? null,
     officialUrl: input.officialUrl ?? null,
     featuredOrder: input.featuredOrder ?? null,
@@ -103,7 +113,11 @@ export async function updateEntity(type: EntityType, id: string, patch: Property
     const placedBefore = placement(doc.toObject());
     const featuredBefore = doc.featuredOrder != null;
     const { image, ...fields } = patch as PropertyPatch;
+    const platformsBefore = JSON.stringify(doc.platforms);
     doc.set(fields);
+    if (type === "property" && ("platforms" in patch || "kind" in patch)) {
+      doc.platforms = await platformsOf(doc.kind, doc.platforms);
+    }
     // Omitted keeps the stored image, null removes it.
     if (type === "property" && image !== undefined) doc.set("image", coverOf(image, doc.image));
     await doc.save({ session });
@@ -114,6 +128,9 @@ export async function updateEntity(type: EntityType, id: string, patch: Property
       if (placement(doc.toObject()) !== placedBefore || (featured && (renamed || "kind" in patch))) tags.push("featured");
     }
     if (renamed) tags.push("collabs", ...(await propagateSnapshot(type, doc, session)));
+    if (type === "property" && JSON.stringify(doc.platforms) !== platformsBefore) {
+      tags.push("collabs", ...(await syncHostPlatforms([doc._id], session)).tags);
+    }
     if (type === "property" && "kind" in patch) {
       // Party kinds default to the property's kind; keep them in sync for linked parties.
       const toUpdate = await Collab.find({ "parties.propertyId": doc._id }, null, { session });
@@ -174,11 +191,14 @@ export async function mergeEntities(type: EntityType, targetId: string, fromId: 
       // Home placement: the target keeps its own values and takes the absorbed one's only where it has none.
       if (target.featuredOrder == null && from.featuredOrder != null) target.featuredOrder = from.featuredOrder;
       if (!hasImage(target.image) && hasImage(from.image)) target.set("image", from.toObject().image);
+      if (!target.platforms.length && from.platforms.length) target.platforms = from.platforms;
       if (target.featuredOrder != null || from.featuredOrder != null || hasImage(target.image) || hasImage(from.image)) tags.add("featured");
       await Property.updateMany({ parentId: from._id }, { parentId: target._id }, { session });
     }
     await modelOf(type).deleteOne({ _id: from._id }, { session });
     await target.save({ session });
+    // Collabs re-pointed above were saved before the target took its final platforms.
+    if (type === "property") (await syncHostPlatforms([target._id], session)).tags.forEach((t) => tags.add(t));
     await recountEntities(type === "property" ? [target._id] : [], type === "company" ? [target._id] : [], session);
     return { target, tags: [...tags] };
   });

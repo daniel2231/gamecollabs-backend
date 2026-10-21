@@ -5,6 +5,7 @@ import { Collab } from "../src/models/collab.js";
 import { Company, Property } from "../src/models/entities.js";
 import { IngestRun, JobLock, Submission } from "../src/models/support.js";
 import { migrateMdx } from "../src/cli/migrate.js";
+import { backfillGamePlatforms } from "../src/cli/platforms.js";
 import { consistency, recount, reindexFacets } from "../src/jobs/tasks.js";
 import { withJobLock } from "../src/jobs/lock.js";
 import { SERVICE_TOKEN, adminJwt, apiToken, as, seedEntities, setupDb, teardownDb } from "./helpers.js";
@@ -56,7 +57,8 @@ describe("ingest", () => {
       status: "draft",
       category: "category.in_game",
       regions: ["region.korea"],
-      platforms: ["platform.android"],
+      // The game's platforms, not the candidate's.
+      platforms: ["platform.android", "platform.ios"],
       collabTypes: ["collab_type.cosmetic_item"],
       origin: { type: "gpt", runId: "run-1", client: "chatgpt-mcp", confidence: 0.8 },
     });
@@ -150,6 +152,33 @@ describe("ingest", () => {
     ]);
     expect(second!.companies.map((x) => x.slug)).toEqual(["snk", "krafton"]);
     expect(await Company.countDocuments({ slug: /^snk/ })).toBe(1);
+  });
+
+  it("puts platforms on the game: sets up a new game, only suggests for an existing one", async () => {
+    const res = await as(ingest)
+      .post("/v1/ingest/candidates")
+      .send({
+        client: "chatgpt-mcp",
+        candidates: [
+          candidate({
+            game: { name: "Brand New Game", names: { ko: "신작 게임", en: "Brand New Game" } },
+            platforms: ["Mobile", "Android", "iOS", "Steam"],
+            sources: [{ url: "https://news.example.com/new-game" }],
+          }),
+          candidate({ platforms: ["Mobile", "PS5"], sources: [{ url: "https://news.example.com/pubg-ps5" }], period: { start: "2027-03-01" } }),
+        ],
+      });
+    const [created, existing] = res.body.data.results;
+    const game = await Property.findOne({ slug: "brand-new-game" }).lean();
+    expect(game!.platforms).toEqual(["platform.android", "platform.ios", "platform.pc"]);
+    expect((await Collab.findById(created.id).lean())!.platforms).toEqual(["platform.android", "platform.ios", "platform.pc"]);
+
+    // PUBG Mobile already lists Android and iOS: Mobile is covered, PS5 is only suggested.
+    expect(existing.status).toBe("created");
+    expect(existing.unmapped.game_platforms).toEqual(["platform.ps5"]);
+    expect(existing.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/game "pubg-mobile" does not list platform\.ps5/)]));
+    expect((await Property.findById(e.pubg.id).lean())!.platforms).toEqual(["platform.android", "platform.ios"]);
+    expect((await Collab.findById(existing.id).lean())!.platforms).toEqual(["platform.android", "platform.ios"]);
   });
 
   it("keeps a bare name when the official names are not given, and creates nothing for duplicates", async () => {
@@ -272,9 +301,44 @@ describe("jobs", () => {
     await Collab.updateMany({}, { $set: { "parties.$[].name": { ko: "stale", en: "stale" }, facetKeys: [] } });
     expect((await recount()).properties).toBeGreaterThanOrEqual(0);
     expect((await Property.findById(e.pubg.id))!.collabCount).toBe(0);
+    // Before consistency(), which also re-derives the facets of collabs whose platform copy it checks.
+    expect((await reindexFacets()).updated).toBeGreaterThan(0);
     expect((await consistency()).fixed).toBeGreaterThan(0);
     expect((await Collab.findOne({}).lean())!.parties[0]!.name!.ko).not.toBe("stale");
-    expect((await reindexFacets()).updated).toBeGreaterThan(0);
+  });
+
+  it("moves collab platforms onto their games once, and keeps the copies in sync", async () => {
+    const game = await Property.create({ slug: "legacy-game", kind: "partner_category.game", name: { ko: "옛 게임", en: "Legacy Game" } });
+    const base = await Collab.findOne({}).lean();
+    const make = async (slug: string, platforms: string[]) => {
+      const c = await Collab.create({ ...base, _id: undefined, slug, status: "published", parties: [{ ...base!.parties[0], propertyId: game._id, slug: game.slug }, base!.parties[1]] });
+      // Stored the way collabs carried platforms before they moved to the game.
+      await Collab.updateOne({ _id: c._id }, { $set: { platforms } });
+      return c._id;
+    };
+    const a = await make("legacy-a", ["platform.mobile"]);
+    const b = await make("legacy-b", ["platform.android", "platform.ios", "platform.pc"]);
+
+    const dry = await backfillGamePlatforms({ dryRun: true });
+    expect(dry.changes.find((c) => c.slug === "legacy-game")).toMatchObject({ from: [], to: ["platform.android", "platform.ios", "platform.pc"] });
+    expect(dry.mixed).toContain("legacy-game");
+    expect((await Property.findById(game._id).lean())!.platforms).toEqual([]);
+
+    const applied = await backfillGamePlatforms({ dryRun: false });
+    expect(applied.collabsUpdated).toBeGreaterThan(0);
+    expect((await Property.findById(game._id).lean())!.platforms).toEqual(["platform.android", "platform.ios", "platform.pc"]);
+    for (const id of [a, b]) {
+      const c = await Collab.findById(id).lean();
+      expect(c!.platforms).toEqual(["platform.android", "platform.ios", "platform.pc"]);
+      expect(c!.facetKeys).toEqual(expect.arrayContaining(["platform.mobile", "platform.pc"]));
+    }
+    expect((await backfillGamePlatforms({ dryRun: false })).games).toBe(0);
+
+    // The weekly consistency job repairs a copy that drifted.
+    await Collab.updateOne({ _id: a }, { $set: { platforms: ["platform.xbox"] } });
+    expect((await consistency()).platforms).toBe(1);
+    expect((await Collab.findById(a).lean())!.platforms).toEqual(["platform.android", "platform.ios", "platform.pc"]);
+    await Collab.deleteMany({ _id: { $in: [a, b] } });
   });
 });
 

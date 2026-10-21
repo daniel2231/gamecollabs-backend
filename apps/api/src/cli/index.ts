@@ -8,6 +8,7 @@ import { TaxonomyTerm } from "../models/taxonomyTerm.js";
 import { seedTaxonomy } from "../seed/run.js";
 import { JOBS, runJob } from "../jobs/index.js";
 import { migrateMdx } from "./migrate.js";
+import { backfillGamePlatforms } from "./platforms.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
@@ -23,6 +24,7 @@ Commands:
   migrate-mdx --dir <content/collab-tracker> [--dry-run] [--allow-unmapped]
               [--fields fields.json] [--mapping mapping.json] [--entity-map entities.json] [--report report.json]
               [--image-base-url https://<old blog domain>] [--update-names]
+  backfill-game-platforms [--dry-run]  Move platforms from collabs to their host games (once, on deploy)
   job <name>                           Run a periodic job now (${Object.keys(JOBS).join(", ")})
 `;
 
@@ -110,6 +112,9 @@ async function main() {
         if (result.aborted || missing > 0) process.exitCode = 1;
         break;
       }
+      case "backfill-game-platforms":
+        console.log(JSON.stringify(await backfillGamePlatforms({ dryRun: values["dry-run"] }), null, 2));
+        break;
       case "job": {
         const name = positionals[0];
         if (!name) throw new Error(`job name required: ${Object.keys(JOBS).join(", ")}`);

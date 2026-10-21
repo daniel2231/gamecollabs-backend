@@ -34,6 +34,11 @@ export const PropertyInput = z.object({
   aliases: Aliases.default([]),
   parentId: ObjectIdString.nullish(),
   officialUrl: HttpUrl.nullish(),
+  /**
+   * Games only: the platforms the game ships on, as specific as known (`platform.android`, `platform.ps5`).
+   * Its collabs show these; a collab has no platforms of its own.
+   */
+  platforms: z.array(keyOf("platform")).max(30).default([]),
   featuredOrder: FeaturedOrder.nullish(),
   image: PropertyImageInput.nullish(),
 });

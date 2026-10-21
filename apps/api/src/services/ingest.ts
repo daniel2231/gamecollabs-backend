@@ -72,7 +72,7 @@ async function createMissing<M extends typeof Property | typeof Company>(model: 
   return doc.toObject();
 }
 
-const createMissingProperty = (side: Side, kind: string, runId: string) => createMissing(Property, side, runId, { kind });
+const createMissingProperty = (side: Side, kind: string, runId: string, extra: Record<string, unknown> = {}) => createMissing(Property, side, runId, { kind, ...extra });
 const createMissingCompany = (side: CompanySide, runId: string) => createMissing(Company, side, runId, { country: side.country ?? null });
 
 type Unmapped = Record<string, string[]>;
@@ -151,7 +151,8 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
     if (!category) unmapped.category = [c.category];
   }
   const regions = mapValues(tax, "region", c.regions, unmapped);
-  const platforms = mapValues(tax, "platform", c.platforms, unmapped);
+  // Platforms belong to the game: they seed a game created here, and are only suggested for an existing one.
+  const platforms = tax.mostSpecific(mapValues(tax, "platform", c.platforms, unmapped));
   const collabTypes = mapValues(tax, "collab_type", c.collabTypes, unmapped);
   let partnerKind = c.partner.kind ? tax.map("partner_category", c.partner.kind) : null;
   if (c.partner.kind && !partnerKind) unmapped.partner_category = [c.partner.kind];
@@ -160,8 +161,17 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
 
   // Link or create the game and the partner (only now, so duplicates and rejected candidates create nothing).
   if (!game) {
-    game = await createMissingProperty(c.game, gameKind ?? "partner_category.game", ctx.runId);
+    const kind = gameKind ?? "partner_category.game";
+    game = await createMissingProperty(c.game, kind, ctx.runId, tax.expand([kind]).includes("partner_category.game") ? { platforms } : {});
     warnings.push(game ? `created game "${game.slug}" (new, check it in the entity list)` : `game "${c.game.name}" is not linked: send game.names.ko/en to create it`);
+  } else {
+    // Lean reads skip defaults: games stored before platforms moved to them have no field yet.
+    const known = new Set(tax.expand(game.platforms ?? []));
+    const suggested = platforms.filter((k) => !known.has(k));
+    if (suggested.length) {
+      unmapped.game_platforms = suggested;
+      warnings.push(`game "${game.slug}" does not list ${suggested.join(", ")}; kept for the reviewer to add to the game`);
+    }
   }
   if (!partner) {
     partner = await createMissingProperty(c.partner, partnerKind ?? "partner_category.other", ctx.runId);
@@ -195,7 +205,6 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
     companies,
     category,
     regions,
-    platforms,
     collabTypes,
     period: { start: c.period.start ?? null, end: c.period.end ?? null, endKind: c.period.end ? "fixed" : c.period.endKind },
     sources: sourceUrls.map((url, i) => {

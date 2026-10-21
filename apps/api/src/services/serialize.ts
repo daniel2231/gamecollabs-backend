@@ -143,6 +143,7 @@ type LeanEntity = Lean<{
   kind?: string;
   country?: string | null;
   officialUrl?: string | null;
+  platforms?: string[];
 }>;
 
 export function entitySummary(doc: LeanEntity, locale: Locale, tax: TaxonomyIndex) {
@@ -154,6 +155,7 @@ export function entitySummary(doc: LeanEntity, locale: Locale, tax: TaxonomyInde
     ...(doc.kind !== undefined ? { kind: tax.labeled(doc.kind, locale) } : {}),
     ...(doc.country !== undefined ? { country: doc.country ?? null } : {}),
     ...(doc.officialUrl !== undefined ? { officialUrl: doc.officialUrl ?? null } : {}),
+    ...(doc.platforms !== undefined ? { platforms: doc.platforms.map((k) => tax.labeled(k, locale)!) } : {}),
     aliases: doc.aliases,
     collabCount: doc.collabCount,
   };

@@ -10,7 +10,7 @@ import type {
   TransitionInput,
 } from "@gamecollabs/schema";
 import { withTransaction } from "../db.js";
-import { Collab, type CollabDoc, type CollabFields } from "../models/collab.js";
+import { Collab, facetKeysOf, hostPlatforms, type CollabDoc, type CollabFields } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { Revision } from "../models/support.js";
 import type { Principal } from "../auth/principal.js";
@@ -21,6 +21,7 @@ import { parseDateInput, phaseFilter, toStoredPeriod } from "../lib/period.js";
 import { slugify } from "../lib/text.js";
 import { normalizeUrl } from "../lib/url.js";
 import { search } from "../search/provider.js";
+import { taxonomy } from "./taxonomy.js";
 
 type Snapshot = { ko: string | null; en: string | null };
 
@@ -127,7 +128,7 @@ function plain(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
-const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "platforms", "collabTypes", "period", "sources", "cover", "venues"] as const;
+const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "collabTypes", "period", "sources", "cover", "venues"] as const;
 
 function snapshot(doc: CollabDoc): Record<string, unknown> {
   const obj = doc.toObject();
@@ -178,6 +179,27 @@ const entityIds = (doc: Pick<CollabFields, "parties" | "companies">) => ({
   properties: doc.parties.map((p) => p.propertyId),
   companies: doc.companies.map((c) => c.companyId),
 });
+
+/**
+ * Re-copies the host game's platforms (and facets) into the collabs these properties host,
+ * or into every collab when no ids are given. Returns how many changed and the cache tags of the published ones.
+ */
+export async function syncHostPlatforms(propertyIds?: Types.ObjectId[], session?: ClientSession) {
+  const tax = await taxonomy();
+  const filter = propertyIds ? { parties: { $elemMatch: { role: "host", propertyId: { $in: propertyIds } } } } : {};
+  const collabs = await Collab.find(filter, { slug: 1, status: 1, category: 1, regions: 1, platforms: 1, collabTypes: 1, parties: 1, facetKeys: 1 }, { session }).lean();
+  const tags: string[] = [];
+  let updated = 0;
+  for (const c of collabs) {
+    const platforms = await hostPlatforms(c.parties, session);
+    const facetKeys = facetKeysOf({ ...c, platforms }, tax);
+    if (JSON.stringify([platforms, facetKeys]) === JSON.stringify([c.platforms, c.facetKeys])) continue;
+    await Collab.updateOne({ _id: c._id }, { $set: { platforms, facetKeys } }, { session });
+    updated++;
+    if (c.status === "published") tags.push(`collab:${c.slug}`);
+  }
+  return { updated, tags };
+}
 
 /* ------------------------------------------------------------------ duplicates */
 
@@ -267,7 +289,6 @@ export async function createDraft(input: CollabInput, actor: Principal, opts: Cr
       companies,
       category: input.category ?? null,
       regions: input.regions,
-      platforms: input.platforms,
       collabTypes: input.collabTypes,
       period,
       sources: toSources(input.sources),
@@ -325,7 +346,6 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
     if (patch.companies !== undefined) doc.set("companies", await resolveCompanies(patch.companies, session));
     if (patch.category !== undefined) doc.category = patch.category ?? null;
     if (patch.regions !== undefined) doc.regions = patch.regions;
-    if (patch.platforms !== undefined) doc.platforms = patch.platforms;
     if (patch.collabTypes !== undefined) doc.collabTypes = patch.collabTypes;
     if (patch.period !== undefined) doc.set("period", toStoredPeriod(patch.period));
     if (patch.sources !== undefined) doc.set("sources", toSources(patch.sources));

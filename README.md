@@ -62,7 +62,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
 | GET | `/v1/admin/collabs/:id/revisions`, `…/duplicates` | 변경 이력, 중복 후보 |
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
-| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
+| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제. 게임은 `platforms`(플랫폼 키 목록, 아래 데이터 모델 참고)도 받음 |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만). 작품의 `featuredOrder`·`image`는 대상 값을 유지하고, 대상에 없을 때만 원본 값을 옮김 |
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
@@ -81,6 +81,8 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 그리고 작업 잠금용 `job_locks`.
 
 - 저장 전 훅이 `facetKeys`(입력 키 + 모든 상위 키 + partner 역할의 kind), `searchTokens`(한글 2-gram, 영문 단어·접두어), `rev`를 계산합니다. 분류 키는 `taxonomy_terms`에 있는 키만 허용합니다.
+- **플랫폼은 게임 단위**입니다. 게임(`kind`가 `partner_category.game`인 작품)의 `platforms`에 가장 구체적인 키로 저장합니다(`platform.android`·`platform.ios`, `platform.ps5`). 상위 키와 하위 키를 함께 보내면 상위 키는 버립니다(`mobile` + `android` → `android`). 게임이 아닌 작품에 넣으면 400 `invalid_platforms`입니다. 콜라보는 자기 플랫폼을 갖지 않습니다. 저장할 때 host 게임의 `platforms`를 복사하고(`collab.platforms`, 입력의 `platforms`는 무시), 게임의 플랫폼이 바뀌거나 병합되면 같은 트랜잭션에서 그 게임이 host인 콜라보의 복사본과 `facetKeys`를 갱신합니다. 상위 키 필터(`platform=platform.mobile`)는 `facetKeys`로 하위 키에 걸립니다. 병합할 때 대상 게임에 플랫폼이 없으면 흡수되는 게임의 값을 가져옵니다.
+- 수집 후보의 `platforms`는 게임 설명으로 봅니다. 새로 만드는 게임에는 그대로(가장 구체적인 키로) 저장하고, 이미 있는 게임이면 바꾸지 않고 게임에 없는 키만 `origin.unmapped.game_platforms`와 `warnings`에 남겨 검수자가 게임에 추가하게 합니다.
 - 검색은 `SearchProvider` 인터페이스 뒤의 자체 토큰 인덱스입니다. Atlas Search로 바꿀 때 구현체만 교체합니다.
 - PATCH·전이·병합은 모두 트랜잭션 안에서 `revisions`에 diff를 남깁니다.
 
@@ -158,11 +160,23 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | `recount` | 매일 03:20 | `collabCount` 보정 |
 | `followups` | 매일 03:50 | 후속 확인 사유 재계산, 기존 데이터 채우기 |
 | `reindex-facets` | 매일 03:40 | 분류 계층 변경 후 `facetKeys` 재계산 |
-| `consistency` | 일 04:40 | 이름 스냅샷 불일치 수정 |
+| `consistency` | 일 04:40 | 이름 스냅샷, 콜라보의 게임 플랫폼 복사본 불일치 수정 |
 | `mirror-covers` | 매시 15분 | 커버 이미지를 R2로 복사 (F-09) |
 | `cleanup-uploads` | 일 05:30 | 어느 콜라보 커버나 작품 이미지도 쓰지 않는 업로드(`covers/`) 중 7일 지난 것 삭제 |
 | `export-json` | 일 05:00 | 컬렉션별 Extended JSON 덤프 (`EXPORT_DIR`, Git 커밋용) |
 | `discover-openai` | 매일 09:05 | 대체 수집 경로 (키가 있을 때만) |
+
+### 플랫폼을 게임 단위로 옮기기 (한 번)
+
+플랫폼이 콜라보에 따로 저장되던 데이터는 배포 직후, 콜라보가 다시 저장되기 전에 한 번 옮깁니다. 게임마다 그 게임이 host인 콜라보들의 플랫폼을 합쳐 가장 구체적인 키로 줄여 게임에 넣고(이미 있는 값에 더함), 모든 콜라보가 게임의 값을 복사합니다. 옮기기 전에는 게임에 플랫폼이 없어서, 콜라보를 저장하거나 `consistency` 작업이 돌면 그 콜라보의 플랫폼이 비워집니다.
+
+```bash
+cd deploy
+docker compose run --rm api node dist/cli/index.js backfill-game-platforms --dry-run   # 미리보기
+docker compose run --rm api node dist/cli/index.js backfill-game-platforms
+```
+
+결과의 `mixed`는 콜라보마다 플랫폼이 달랐던 게임(합집합이 맞는지 확인할 것), `notGames`는 게임이 아닌 host, `orphaned`는 host가 연결되지 않아 플랫폼을 옮기지 못한 콜라보입니다. 다시 실행해도 안전합니다.
 
 일일 `mongodump`는 `backup` 컨테이너가 R2 `backups` 버킷에 올리고 30일 보관합니다 (`deploy/backup/backup.sh once`로 즉시 실행).
 
@@ -212,6 +226,7 @@ docker compose run --rm -v "$(pwd)/migration:/app/migration:ro" api \
 - `partner_category`가 여러 개면 첫 번째만 쓰고 `warnings`에 남깁니다.
 - `image`가 `/blog/uploads/...`처럼 옛 블로그의 경로면 `--image-base-url https://<블로그 도메인>`으로 전체 주소로 바꿔 저장합니다(없으면 `problems`). 이미 R2로 복사된 커버는 이미지가 그대로면 다시 실행해도 유지됩니다.
 - 모든 항목은 한국어·영어를 다 갖춰야 합니다. 필요한 필드: `title`/`title_en`(둘 다 없으면 작품명으로 만듦), `summary_ko`/`summary_en`, `game_title`/`game_title_ko`, `ip_title`/`ip_title_ko`, `companies`/`companies_ko`(같은 순서). 하나라도 빠지면 `problems`에 나오고 이관이 중단됩니다.
+- `platform` 값은 그 파일의 게임에 더해집니다(같은 게임의 파일들을 합쳐 가장 구체적인 키로). 콜라보는 게임의 플랫폼을 보여 주므로 대조 리포트는 플랫폼을 파일별로 비교하지 않습니다.
 - 매핑 파일 형식: `{ "<taxonomy>": { "<원본 값>": "<키>" | ["<키>", …] | null } }`. 키가 분류표에 없으면 `unmapped`로 보고합니다. 표기가 다른 같은 작품은 `--entity-map entities.json`(`{ "AoT": "Attack on Titan" }`)으로 합칩니다.
 
 ## 배포 (홈서버)
