@@ -10,8 +10,7 @@ permissions:
 
 jobs:
   test:
-    # mongo:8 exits right after start on the ubuntu-26.04 runners that ubuntu-latest now points to.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -21,7 +20,8 @@ jobs:
           cache: pnpm
       - name: Start MongoDB 8 (single-node replica set)
         run: |
-          docker run -d --name mongo -p 27017:27017 mongo:8 --replSet rs0 --bind_ip_all
+          # mongo:8 refuses to start on Linux 6.19+ (tcmalloc rseq bug, SERVER-121912) unless glibc keeps rseq.
+          docker run -d --name mongo -p 27017:27017 -e GLIBC_TUNABLES=glibc.pthread.rseq=1 mongo:8 --replSet rs0 --bind_ip_all
           for i in $(seq 1 30); do
             docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }" && break
             sleep 2
