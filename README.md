@@ -122,6 +122,17 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 
 사유는 하나만 붙고 날짜가 우선입니다. 날짜와 내용이 모두 미정이면 날짜 사유가 붙지만, `list_followups`의 각 행에 `contentTba`가 있어 확인할 때 내용도 같이 찾습니다. 내용이 발표되면 `report_followup`에 `changes.contentTba: false`와 내용을 담은 `changes.i18n`을 보냅니다. 수집 후보(`submit_collab_candidates`)와 `update_collab`에도 `contentTba`를 넣을 수 있고, 공개 API 카드에도 `contentTba`가 나갑니다.
 
+기존 데이터는 `flag-content-tba` 명령으로 한 번에 표시합니다. 요약·메모에 "자세한 내용은 추후 공개", "details will be revealed later" 같은 표현이 있는 진행 중·예정 콜라보를 찾아 보여 주고(아무것도 바꾸지 않음), 확인한 뒤 `--apply`로 표시합니다. "출시 일정은 추후 공개"처럼 날짜만 미정인 문구는 제외합니다.
+
+```bash
+# 컨테이너에서 (deploy 디렉터리)
+docker compose exec api node dist/cli/index.js flag-content-tba                 # 후보 목록만
+docker compose exec api node dist/cli/index.js flag-content-tba --apply         # 후보 전부 표시
+docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs a-slug,b-slug   # 고른 것만
+```
+
+표시된 콜라보는 `rev`가 오르고 변경 이력(`cli:flag-content-tba`)에 남으며, 바로 재확인 대상이 됩니다.
+
 날짜가 다 채워지고 내용도 확정됐거나, 종료됐거나, 보관된 콜라보는 대상에서 빠집니다. `permanent`인 콜라보는 내용이 미정일 때만 남습니다.
 
 - 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).

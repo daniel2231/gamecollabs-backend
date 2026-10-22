@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # mongo:8 exits right after start on the ubuntu-26.04 runners that ubuntu-latest now points to.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -25,6 +26,7 @@ jobs:
             docker exec mongo mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }" && break
             sleep 2
           done
+          docker exec mongo mongosh --quiet --eval "rs.status().ok" || { docker logs mongo; exit 1; }
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r run build
       - run: pnpm -r run typecheck

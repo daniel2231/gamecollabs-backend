@@ -5,6 +5,7 @@ import { normalizeUrl } from "../src/lib/url.js";
 import { isPrivateAddress } from "../src/lib/safeFetch.js";
 import { TaxonomyIndex, type Term } from "../src/services/taxonomy.js";
 import { startOfKstDay } from "../src/services/ingest.js";
+import { matchOf } from "../src/cli/contentTba.js";
 
 describe("search tokens", () => {
   it("indexes Hangul as 2-grams and Latin words with prefixes", () => {
@@ -104,5 +105,20 @@ describe("ingest day boundary", () => {
   it("uses the KST calendar day", () => {
     expect(startOfKstDay(new Date("2026-10-06T14:59:00Z")).toISOString()).toBe("2026-10-05T15:00:00.000Z");
     expect(startOfKstDay(new Date("2026-10-06T15:00:00Z")).toISOString()).toBe("2026-10-06T15:00:00.000Z");
+  });
+});
+
+describe("content TBA scan", () => {
+  const m = (summary: string) => matchOf([{ summary }]);
+  it("matches wording about content still to come", () => {
+    expect(m("콜라보가 예고됐으며 자세한 내용은 추후 공개될 예정이다.")).not.toBeNull();
+    expect(m("콜라보 보상 구성은 미정이다.")).not.toBeNull();
+    expect(m("A collab was teased; details will be revealed later.")).not.toBeNull();
+    expect(m("More information is coming soon. Stay tuned!")).not.toBeNull();
+  });
+  it("ignores dates still to come", () => {
+    expect(m("게이밍 기어 4종으로 구성되며 출시 일정은 추후 공개될 예정이다.")).toBeNull();
+    expect(m("Four gaming gear items, with the release schedule to be announced later.")).toBeNull();
+    expect(m("진격의 거인 테마 스킨과 맵이 추가된다.")).toBeNull();
   });
 });

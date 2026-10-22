@@ -8,6 +8,7 @@ import { TaxonomyTerm } from "../models/taxonomyTerm.js";
 import { seedTaxonomy } from "../seed/run.js";
 import { JOBS, runJob } from "../jobs/index.js";
 import { migrateMdx } from "./migrate.js";
+import { flagContentTba } from "./contentTba.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
@@ -23,6 +24,9 @@ Commands:
   migrate-mdx --dir <content/collab-tracker> [--dry-run] [--allow-unmapped]
               [--fields fields.json] [--mapping mapping.json] [--entity-map entities.json] [--report report.json]
               [--image-base-url https://<old blog domain>] [--update-names]
+  flag-content-tba [--apply] [--slugs a,b]
+                                       List active collabs whose summary says the content is still to come;
+                                       --apply sets contentTba on them (or only on --slugs) and queues a re-check
   job <name>                           Run a periodic job now (${Object.keys(JOBS).join(", ")})
 `;
 
@@ -49,6 +53,8 @@ async function main() {
       report: { type: "string" },
       "image-base-url": { type: "string" },
       "update-names": { type: "boolean", default: false },
+      apply: { type: "boolean", default: false },
+      slugs: { type: "string" },
     },
   });
   if (!command || command === "help") {
@@ -108,6 +114,11 @@ async function main() {
         console.log(JSON.stringify(result, null, 2));
         const missing = (result.reconciliation as { missing?: string[] } | null)?.missing?.length ?? 0;
         if (result.aborted || missing > 0) process.exitCode = 1;
+        break;
+      }
+      case "flag-content-tba": {
+        const slugs = values.slugs?.split(",").map((s) => s.trim()).filter(Boolean);
+        console.log(JSON.stringify(await flagContentTba({ apply: values.apply, slugs }), null, 2));
         break;
       }
       case "job": {
