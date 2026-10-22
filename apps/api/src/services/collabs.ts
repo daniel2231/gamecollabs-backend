@@ -127,7 +127,7 @@ function plain(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
-const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "platforms", "collabTypes", "period", "sources", "cover", "venues"] as const;
+const TRACKED = ["slug", "status", "i18n", "parties", "companies", "category", "regions", "platforms", "collabTypes", "period", "contentTba", "sources", "cover", "venues"] as const;
 
 function snapshot(doc: CollabDoc): Record<string, unknown> {
   const obj = doc.toObject();
@@ -270,6 +270,7 @@ export async function createDraft(input: CollabInput, actor: Principal, opts: Cr
       platforms: input.platforms,
       collabTypes: input.collabTypes,
       period,
+      contentTba: input.contentTba,
       sources: toSources(input.sources),
       cover: coverOf(input.cover),
       venues: venuesOf(input.venues),
@@ -328,6 +329,7 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
     if (patch.platforms !== undefined) doc.platforms = patch.platforms;
     if (patch.collabTypes !== undefined) doc.collabTypes = patch.collabTypes;
     if (patch.period !== undefined) doc.set("period", toStoredPeriod(patch.period));
+    if (patch.contentTba !== undefined) doc.contentTba = patch.contentTba;
     if (patch.sources !== undefined) doc.set("sources", toSources(patch.sources));
     if (patch.cover !== undefined) doc.set("cover", coverOf(patch.cover, doc.cover));
     if (patch.venues !== undefined) doc.set("venues", venuesOf(patch.venues));

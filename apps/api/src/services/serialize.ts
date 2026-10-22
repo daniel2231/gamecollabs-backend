@@ -67,6 +67,7 @@ export function collabCard(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex, 
     summary: text.summary,
     phase: phaseOf({ start: doc.period?.start ?? null, until: doc.period?.until ?? null, endKind: doc.period?.endKind ?? "fixed" }, now),
     period: period(doc),
+    contentTba: !!doc.contentTba,
     category: tax.labeled(doc.category, locale),
     parties: doc.parties.map((p) => ({
       id: p.propertyId?.toString() ?? null,

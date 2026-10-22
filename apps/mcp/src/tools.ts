@@ -26,7 +26,8 @@ submit_collab_candidates (max ${MAX_CANDIDATES_PER_CALL} per call). Submissions 
 and published only after a person reviews them. Every candidate needs a title and a summary
 in both Korean and English, and at least one public source URL; never invent dates or
 details that the source does not state. When the start date has not been announced, leave
-period.start out: the candidate is still stored as a draft for review.
+period.start out: the candidate is still stored as a draft for review. When the announcement does
+not say yet what the collab adds (items, skins, events), set contentTba: true so it is re-checked.
 Always give game.names, partner.names and companies[].names (official Korean and English
 names, plus the original-script name when it differs; for companies also country as ISO
 alpha-2): if find_entity finds nothing, the server creates the game/IP/company from them so
@@ -37,10 +38,11 @@ For offline collabs (cafés, pop-up stores, events, shop campaigns) add venues: 
 name in Korean and English, the address as officially written, and the venue page URL if any.
 
 Follow-ups: collabs announced without dates (start not out, only the month known, end not announced)
-are re-checked on a schedule. list_followups returns the ones due; look each up again (official site,
+or without their content (contentTba) are re-checked on a schedule. list_followups returns the ones due; look each up again (official site,
 press release, patch notes, store page) and call report_followup once per collab: outcome "no_change"
 when nothing new is public (the next check moves back: 3, 7, 14, then 30 days), or "updated" with
-the rev from list_followups, the changed period and/or i18n, and the source that states it. Drafts are
+the rev from list_followups, the changed period and/or i18n (plus contentTba: false once the content
+is announced), and the source that states it. Drafts are
 updated directly; for collabs under review or published the change waits for an admin. Only report what
 a source states; an end date that a guide or community post guesses is not announced.`;
 
@@ -168,7 +170,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     "submit_collab_candidates",
     {
       title: "Submit collab candidates",
-      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one). Give game.names / partner.names / companies[].names ({ ko, en, original? }) so a game, IP or company that is not in the tracker yet is created and linked. Returns created / duplicate / rejected per candidate with reasons.`,
+      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one); set contentTba: true when what the collab adds is not announced yet. Give game.names / partner.names / companies[].names ({ ko, en, original? }) so a game, IP or company that is not in the tracker yet is created and linked. Returns created / duplicate / rejected per candidate with reasons.`,
       inputSchema: { candidates: z.array(IngestCandidate).min(1).max(MAX_CANDIDATES_PER_CALL) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -183,7 +185,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     {
       title: "List collabs due for a re-check",
       description:
-        "Collabs whose dates were not fully announced and whose next check is due, oldest first: reason start_tba (start date not out), month_only (only the month known), end_tba (end not announced) or end_missing. Each row has id, rev, titles, summary, parties, current period and source URLs.",
+        "Collabs whose dates or content were not fully announced and whose next check is due, oldest first: reason start_tba (start date not out), month_only (only the month known), end_tba (end not announced), end_missing, or content_tba (dates known, content not announced). Each row has id, rev, titles, summary, parties, current period, contentTba and source URLs; when contentTba is true, look for the content too, whatever the reason.",
       inputSchema: { limit: z.number().int().min(1).max(50).default(20) },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -195,7 +197,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     {
       title: "Report a collab re-check",
       description:
-        'Records the result of re-checking one collab from list_followups. outcome "no_change": nothing new is public (schedules the next check). outcome "updated": pass rev (from list_followups), changes.period (complete period: start, end, endKind fixed|permanent|tba; YYYY-MM-DD or YYYY-MM) and/or changes.i18n (whole ko and en title/summary), and the sources stating it (added to the stored ones). Drafts are updated at once; collabs under review or published get a proposal that an admin applies or dismisses.',
+        'Records the result of re-checking one collab from list_followups. outcome "no_change": nothing new is public (schedules the next check). outcome "updated": pass rev (from list_followups), changes.period (complete period: start, end, endKind fixed|permanent|tba; YYYY-MM-DD or YYYY-MM) and/or changes.i18n (whole ko and en title/summary) and/or changes.contentTba (false once the content is announced; send it with the i18n that describes it), and the sources stating it (added to the stored ones). Drafts are updated at once; collabs under review or published get a proposal that an admin applies or dismisses.',
       inputSchema: { id_or_slug: z.string().trim().min(1).max(200).describe("id or slug from list_followups"), report: FollowUpReport },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },

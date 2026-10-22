@@ -11,7 +11,7 @@ const ACTIVE = ["draft", "in_review", "published"];
 
 type Proposal = { changes: FollowUpChanges; sources: SourceInput[]; note: string | null; rev: number; by: string; at: Date };
 
-type LeanFollowUp = Pick<CollabFields, "slug" | "status" | "rev" | "i18n" | "parties" | "period" | "sources" | "followUp"> & { _id: { toString(): string } };
+type LeanFollowUp = Pick<CollabFields, "slug" | "status" | "rev" | "i18n" | "parties" | "period" | "contentTba" | "sources" | "followUp"> & { _id: { toString(): string } };
 
 /** What a checker needs to look the collab up again. */
 function followUpRow(d: LeanFollowUp) {
@@ -32,6 +32,7 @@ function followUpRow(d: LeanFollowUp) {
       precision,
       endKind: d.period?.endKind ?? "fixed",
     },
+    contentTba: !!d.contentTba,
     sourceUrls: d.sources.map((s) => s.url),
     lastCheckedAt: f?.lastCheckedAt ?? null,
     nextCheckAt: f?.nextCheckAt ?? null,
@@ -56,7 +57,7 @@ export async function listFollowUps(q: FollowUpListQuery, now = new Date()) {
   const docs = await Collab.find(filter)
     .sort({ ...sort, _id: 1 })
     .limit(q.limit)
-    .select({ slug: 1, status: 1, rev: 1, i18n: 1, parties: 1, period: 1, sources: 1, followUp: 1 })
+    .select({ slug: 1, status: 1, rev: 1, i18n: 1, parties: 1, period: 1, contentTba: 1, sources: 1, followUp: 1 })
     .lean();
   return docs.map((d) => followUpRow(d as LeanFollowUp));
 }
@@ -79,6 +80,7 @@ function patchOf(doc: CollabDoc, changes: FollowUpChanges, sources: SourceInput[
   return {
     ...(changes.period ? { period: changes.period } : {}),
     ...(changes.i18n ? { i18n: changes.i18n } : {}),
+    ...(changes.contentTba !== undefined ? { contentTba: changes.contentTba } : {}),
     sources: mergedSources(doc, sources),
   };
 }
@@ -159,7 +161,7 @@ export async function resolveFollowUp(idOrSlug: string, input: FollowUpResolutio
  */
 export async function refreshFollowUps(now = new Date()) {
   let changed = 0;
-  for await (const c of Collab.find().select({ status: 1, period: 1, followUp: 1 }).lean().cursor()) {
+  for await (const c of Collab.find().select({ status: 1, period: 1, contentTba: 1, followUp: 1 }).lean().cursor()) {
     const reason = followUpReasonOf(c, now);
     if (reason === (c.followUp?.reason ?? null)) continue;
     await setFollowUp(c._id, followUpReset(reason, now, true));

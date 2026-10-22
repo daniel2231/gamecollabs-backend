@@ -198,6 +198,7 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
     platforms,
     collabTypes,
     period: { start: c.period.start ?? null, end: c.period.end ?? null, endKind: c.period.end ? "fixed" : c.period.endKind },
+    contentTba: c.contentTba,
     sources: sourceUrls.map((url, i) => {
       const s = bySourceUrl.get(url);
       return { url, title: s?.title ?? null, publisher: s?.publisher ?? null, type: s?.type ?? "press", isPrimary: i === 0, accessedAt: today };

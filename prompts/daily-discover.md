@@ -26,6 +26,8 @@ Today is {{TODAY}}.
   `"permanent"` when the content stays.
 - A newly announced collab without a start date is still worth submitting: leave
   `period.start` out and it is kept as a draft until the date is known.
+- When the announcement does not say yet what the collab adds (only "collab coming", a teaser
+  image), set `contentTba: true` and say so in the summary; it is re-checked until the content is out.
 - Korean and English are both required for `title` and `summary`; a candidate missing either is rejected.
 - `title`: "<게임> × <파트너>" in Korean and "<Game> x <Partner>" in English, using the official
   Korean and English names (check `find_entity` first).

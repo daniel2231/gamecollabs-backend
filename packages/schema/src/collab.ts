@@ -125,6 +125,8 @@ export const CollabInput = z.object({
   platforms: z.array(keyOf("platform")).max(30).default([]),
   collabTypes: z.array(keyOf("collab_type")).max(30).default([]),
   period: PeriodInput.default({ endKind: "fixed" }),
+  /** Announced, but what it adds (items, skins, events) is not out yet; re-checked until cleared. */
+  contentTba: z.boolean().default(false),
   sources: z.array(SourceInput).min(1).max(20),
   cover: CoverInput.nullish(),
   /** Offline collabs only; several for chain-wide campaigns. */

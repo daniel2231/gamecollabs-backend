@@ -102,6 +102,8 @@ const collabSchema = new Schema(
       /** Exclusive end instant derived from end + precision; makes phase filters a range query. */
       until: { type: Date, default: null },
     },
+    /** Announced without saying what it adds (items, skins, events); re-checked until cleared. */
+    contentTba: { type: Boolean, default: false },
     sources: {
       type: [sourceSchema],
       validate: { validator: (v: unknown[]) => v.length >= 1, message: "at least one source is required" },
@@ -129,8 +131,8 @@ const collabSchema = new Schema(
       notes: str,
     },
     /**
-     * Re-check queue for collabs still missing dates (see lib/followUp.ts). `reason` is derived from
-     * the period on save and by the daily `followups` job; bookkeeping writes never bump `rev`.
+     * Re-check queue for collabs still missing dates or content (see lib/followUp.ts). `reason` is derived from
+     * the period and `contentTba` on save and by the daily `followups` job; bookkeeping writes never bump `rev`.
      */
     followUp: {
       reason: { type: String, enum: [...FOLLOW_UP_REASONS, null], default: null },
@@ -207,7 +209,7 @@ collabSchema.pre("validate", async function () {
   this.searchTokens = collabSearchTokens(this);
   this.set("period.until", untilOf(this.period?.end ?? null, (this.period?.precision ?? "unknown") as "day" | "month" | "unknown"));
 
-  const reason = followUpReasonOf({ status: this.status, period: this.period });
+  const reason = followUpReasonOf({ status: this.status, period: this.period, contentTba: this.contentTba });
   if (reason !== (this.followUp?.reason ?? null)) {
     for (const [k, v] of Object.entries(followUpReset(reason))) this.set(`followUp.${k}`, v);
   }

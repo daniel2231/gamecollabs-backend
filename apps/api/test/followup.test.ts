@@ -12,7 +12,8 @@ const inDays = (n: number) => iso(new Date(Date.now() + n * DAY));
 
 describe("follow-up reasons", () => {
   const now = new Date("2026-10-13T00:00:00Z");
-  const reason = (period: Parameters<typeof toStoredPeriod>[0], status = "published") => followUpReasonOf({ status, period: toStoredPeriod(period) }, now);
+  const reason = (period: Parameters<typeof toStoredPeriod>[0], status = "published", contentTba = false) =>
+    followUpReasonOf({ status, period: toStoredPeriod(period), contentTba }, now);
 
   it("derives what is still missing from the period", () => {
     expect(reason({ endKind: "tba" }, "draft")).toBe("start_tba");
@@ -29,6 +30,16 @@ describe("follow-up reasons", () => {
     expect(reason({ start: "2026-10-01", endKind: "permanent" })).toBeNull();
     expect(reason({ start: "2026-08-01", end: "2026-09-30" })).toBeNull();
     expect(reason({ endKind: "tba" }, "archived")).toBeNull();
+  });
+
+  it("re-checks the content once the dates are known", () => {
+    expect(reason({ start: "2026-10-01", end: "2026-10-31" }, "published", true)).toBe("content_tba");
+    expect(reason({ start: "2026-10-01", endKind: "permanent" }, "published", true)).toBe("content_tba");
+    // Missing dates come first; ended and archived collabs are not re-checked.
+    expect(reason({ endKind: "tba" }, "draft", true)).toBe("start_tba");
+    expect(reason({ start: "2026-10-01", endKind: "tba" }, "published", true)).toBe("end_tba");
+    expect(reason({ start: "2026-08-01", end: "2026-09-30" }, "published", true)).toBeNull();
+    expect(reason({ start: "2026-10-01", end: "2026-10-31" }, "archived", true)).toBeNull();
   });
 
   it("backs off 3 → 7 → 14 → 30 days", () => {
@@ -52,8 +63,8 @@ beforeEach(async () => {
   await Collab.deleteMany({});
 });
 
-async function draft(period: Record<string, unknown>, url = `https://example.com/${Math.random()}`) {
-  const res = await as(admin).post("/v1/admin/collabs").send(draftBody(e.pubg.id, e.aot.id, { period, sources: [{ url, type: "official" }] }));
+async function draft(period: Record<string, unknown>, url = `https://example.com/${Math.random()}`, extra: Record<string, unknown> = {}) {
+  const res = await as(admin).post("/v1/admin/collabs").send(draftBody(e.pubg.id, e.aot.id, { period, sources: [{ url, type: "official" }], ...extra }));
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body.data as { id: string; slug: string; rev: number; followUp: { reason: string | null; nextCheckAt: string | null } };
 }
@@ -164,6 +175,34 @@ describe("follow-up queue", () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ rev: c.rev, followUp: { reason: "end_tba", proposal: null } });
     expect((await as(admin).post(`/v1/admin/collabs/${c.id}/followup`).send({ action: "dismiss" })).status).toBe(404);
+  });
+
+  it("clears contentTba when the content is announced", async () => {
+    const c = await draft({ start: inDays(5), end: inDays(30) }, undefined, { contentTba: true });
+    expect(c.followUp.reason).toBe("content_tba");
+    await makeDue(c.id);
+    expect(await due()).toMatchObject([{ slug: c.slug, reason: "content_tba", contentTba: true }]);
+
+    const i18n = {
+      ko: { title: "배틀그라운드 모바일 × 진격의 거인", summary: "리바이·미카사 스킨과 입체기동 장치가 추가된다." },
+      en: { title: "PUBG Mobile x Attack on Titan", summary: "Levi and Mikasa skins and ODM gear arrive." },
+    };
+    const res = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev, changes: { i18n, contentTba: false }, sources: [{ url: "https://example.com/notes", type: "official" }] });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data).toMatchObject({ result: "applied", reason: null });
+    const stored = await Collab.findById(c.id).lean();
+    expect(stored!.contentTba).toBe(false);
+    expect(stored!.i18n.en.summary).toBe(i18n.en.summary);
+  });
+
+  it("keeps the content flag while dates are re-checked first", async () => {
+    const c = await draft({ endKind: "tba" }, undefined, { contentTba: true });
+    const res = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev, changes: { period: { start: inDays(3), end: inDays(20) } }, sources: [{ url: "https://example.com/dates2" }] });
+    expect(res.body.data).toMatchObject({ result: "applied", reason: "content_tba" });
   });
 
   it("validates reports", async () => {

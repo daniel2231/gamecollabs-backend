@@ -6,19 +6,24 @@ import { CollabI18n, PeriodInput, SourceInput } from "./collab.js";
  * - `start_tba`: announced, start date not out yet;
  * - `month_only`: only the start month is known (until that month is over);
  * - `end_tba`: running or upcoming, end not announced;
- * - `end_missing`: `endKind: "fixed"` without an end date (data gap).
+ * - `end_missing`: `endKind: "fixed"` without an end date (data gap);
+ * - `content_tba`: dates complete, but what the collab adds is not announced (`contentTba`).
  */
-export const FOLLOW_UP_REASONS = ["start_tba", "month_only", "end_tba", "end_missing"] as const;
+export const FOLLOW_UP_REASONS = ["start_tba", "month_only", "end_tba", "end_missing", "content_tba"] as const;
 export const FollowUpReason = z.enum(FOLLOW_UP_REASONS);
 export type FollowUpReason = z.infer<typeof FollowUpReason>;
 
-/** Changes a re-check may bring: dates and text. New sources are added to the stored ones. */
+/**
+ * Changes a re-check may bring: dates, text, and `contentTba: false` once the content is announced.
+ * New sources are added to the stored ones.
+ */
 export const FollowUpChanges = z
   .object({
     period: PeriodInput.optional(),
     i18n: CollabI18n.optional(),
+    contentTba: z.boolean().optional(),
   })
-  .refine((c) => c.period || c.i18n, { message: "give period and/or i18n" });
+  .refine((c) => c.period || c.i18n || c.contentTba !== undefined, { message: "give period, i18n and/or contentTba" });
 export type FollowUpChanges = z.infer<typeof FollowUpChanges>;
 
 /**

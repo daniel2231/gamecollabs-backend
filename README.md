@@ -110,7 +110,7 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 
 ### 후속 확인 (날짜 미정 콜라보)
 
-발표만 되고 날짜가 "coming soon"인 콜라보, 월만 알려진 콜라보, 종료일이 발표되지 않은 콜라보는 저장할 때 `followUp.reason`이 붙어 재확인 대상이 됩니다.
+발표만 되고 날짜가 "coming soon"인 콜라보, 월만 알려진 콜라보, 종료일이 발표되지 않은 콜라보, 콜라보 내용(아이템·스킨·이벤트 등)이 발표되지 않은 콜라보(`contentTba: true`)는 저장할 때 `followUp.reason`이 붙어 재확인 대상이 됩니다.
 
 | `reason` | 조건 | 기다리는 정보 |
 | --- | --- | --- |
@@ -118,8 +118,11 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 | `month_only` | 시작일이 월 단위 (그 달이 끝날 때까지) | 정확한 시작일 |
 | `end_tba` | 종료일 없음, `endKind: "tba"` | 종료일 또는 상시(`permanent`) 여부 |
 | `end_missing` | 종료일 없음, `endKind: "fixed"` | 종료일 (데이터 누락) |
+| `content_tba` | 날짜는 다 있음, `contentTba: true` | 콜라보 내용 |
 
-날짜가 다 채워지거나, 종료됐거나, `permanent`이거나, 보관된 콜라보는 대상에서 빠집니다.
+사유는 하나만 붙고 날짜가 우선입니다. 날짜와 내용이 모두 미정이면 날짜 사유가 붙지만, `list_followups`의 각 행에 `contentTba`가 있어 확인할 때 내용도 같이 찾습니다. 내용이 발표되면 `report_followup`에 `changes.contentTba: false`와 내용을 담은 `changes.i18n`을 보냅니다. 수집 후보(`submit_collab_candidates`)와 `update_collab`에도 `contentTba`를 넣을 수 있고, 공개 API 카드에도 `contentTba`가 나갑니다.
+
+날짜가 다 채워지고 내용도 확정됐거나, 종료됐거나, 보관된 콜라보는 대상에서 빠집니다. `permanent`인 콜라보는 내용이 미정일 때만 남습니다.
 
 - 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).
 - MCP 도구 (`/mcp`, `/mcp/admin` 둘 다): `list_followups`로 확인할 콜라보를 받고, `report_followup`으로 결과를 보냅니다. 예약 작업 프롬프트는 `prompts/daily-followup.md`입니다.

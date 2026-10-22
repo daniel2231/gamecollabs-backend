@@ -53,6 +53,8 @@ export const IngestCandidate = z.object({
       })
       .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
       .default({ endKind: "tba" }),
+    /** True when the announcement does not say yet what the collab adds (items, skins, events). */
+    contentTba: z.boolean().default(false),
     sources: z
       .array(
         z.object({

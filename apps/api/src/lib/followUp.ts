@@ -11,8 +11,14 @@ export const ESCALATE_AFTER = 5;
 
 type PeriodLike = Pick<StoredPeriod, "start" | "end" | "until" | "precision" | "endKind">;
 
-/** `null` when the collab needs no further checks (complete, ended or archived). */
-export function followUpReasonOf(c: { status: string; period?: Partial<PeriodLike> | null }, now = new Date()): FollowUpReason | null {
+/**
+ * `null` when the collab needs no further checks (complete, ended or archived). Missing dates come
+ * first; the content is checked alongside them (the checker sees `contentTba` in every row).
+ */
+export function followUpReasonOf(
+  c: { status: string; period?: Partial<PeriodLike> | null; contentTba?: boolean | null },
+  now = new Date(),
+): FollowUpReason | null {
   if (c.status === "archived") return null;
   const p = c.period ?? {};
   if (!p.start) return "start_tba";
@@ -25,6 +31,7 @@ export function followUpReasonOf(c: { status: string; period?: Partial<PeriodLik
     if (p.endKind === "tba") return "end_tba";
     if (p.endKind === "fixed") return "end_missing";
   }
+  if (c.contentTba) return "content_tba";
   return null;
 }
 
