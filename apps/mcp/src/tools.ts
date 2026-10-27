@@ -292,7 +292,7 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     "followup_queue",
     {
       title: "Re-check queue (admin)",
-      description: "view proposals: changes a re-check found for collabs under review or published, waiting for a decision. view applied: changes a re-check already made to drafts that no admin has acknowledged yet (with the values before them). view escalated: collabs with no news after many checks. view due: what list_followups returns.",
+      description: "view proposals: changes a re-check found for collabs under review or published, waiting for a decision. view applied: changes a re-check already made to drafts that no admin has acknowledged yet (with the values before them). view escalated: collabs with no news after many checks. view due: what list_followups returns. view queued: every collab still being re-checked, by next check date.",
       inputSchema: { view: z.enum(FOLLOW_UP_VIEWS).default("proposals"), limit: z.number().int().min(1).max(50).default(20) },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
