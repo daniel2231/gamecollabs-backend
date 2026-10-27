@@ -138,9 +138,9 @@ docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs 
 - 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).
 - MCP 도구 (`/mcp`, `/mcp/admin` 둘 다): `list_followups`로 확인할 콜라보를 받고, `report_followup`으로 결과를 보냅니다. 예약 작업 프롬프트는 `prompts/daily-followup.md`입니다.
   - `no_change`: 다음 확인일만 뒤로 미룹니다 (`rev`는 바뀌지 않음).
-  - `updated`: **초안은 바로 수정**합니다 (`rev` 확인, 변경 이력 기록, 새 출처는 기존 출처 뒤에 추가). **검수 중·발행된 콜라보는 수정하지 않고 제안(`followUp.proposal`)으로 저장**하고 알림을 보냅니다. 제안이 처리될 때까지 그 콜라보는 확인 대상에서 빠집니다.
-- 관리용 도구: `followup_queue`(`proposals`/`escalated`/`due`), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
-- API: `GET /v1/ingest/followups`, `POST /v1/ingest/followups/:id`(수집 토큰), `GET /v1/admin/followups?view=`, `POST /v1/admin/collabs/:id/followup`(`If-Match` 필요, apply 시).
+  - `updated`: **초안은 바로 수정**합니다 (`rev` 확인, 변경 이력 기록, 새 출처는 기존 출처 뒤에 추가). 이때 바뀌기 전 값과 바뀐 내용을 `followUp.applied`에 남겨, 관리자가 확인할 때까지 `applied` 목록과 관리자 화면에 보입니다(여러 번 바뀌면 처음 값 → 마지막 값으로 합칩니다). **검수 중·발행된 콜라보는 수정하지 않고 제안(`followUp.proposal`)으로 저장**하고 알림을 보냅니다. 제안이 처리될 때까지 그 콜라보는 확인 대상에서 빠집니다.
+- 관리용 도구: `followup_queue`(`proposals`/`applied`/`escalated`/`due`), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
+- API: `GET /v1/ingest/followups`, `POST /v1/ingest/followups/:id`(수집 토큰), `GET /v1/admin/followups?view=`, `POST /v1/admin/collabs/:id/followup`(`apply`·`dismiss`·`acknowledge`, apply 시 `If-Match` 필요. `acknowledge`는 초안에 자동 반영된 변경을 확인 처리).
 - `followups` 작업이 매일 사유를 다시 계산합니다 (시간이 지나 종료되거나 `month_only`에서 벗어난 콜라보 반영, 기존 데이터 채우기). 새로 대상이 된 콜라보는 바로 확인 대상입니다. 배포 직후 한 번 `pnpm --filter @gamecollabs/api job followups`(컨테이너에서는 `node dist/cli/index.js job followups`)로 기존 데이터를 채우세요.
 
 ### 관리용 MCP (`/mcp/admin`)

@@ -143,6 +143,11 @@ const collabSchema = new Schema(
       escalatedAt: { type: Date, default: null },
       /** Pending change found for a collab under review or published: { changes, sources, note, rev, by, at }. */
       proposal: { type: Schema.Types.Mixed, default: null },
+      /**
+       * Changes a re-check made to a draft that an admin has not acknowledged yet:
+       * { before, changes, sources, note, rev, by, at }. `before` holds the values from before the first of them.
+       */
+      applied: { type: Schema.Types.Mixed, default: null },
     },
     rev: { type: Number, default: 1 },
     searchTokens: { type: [String], default: [], select: false },
@@ -161,6 +166,7 @@ collabSchema.index({ "sources.url": 1 });
 collabSchema.index({ status: 1, updatedAt: -1, _id: -1 });
 collabSchema.index({ "origin.runId": 1, createdAt: -1 });
 collabSchema.index({ "followUp.nextCheckAt": 1 }, { partialFilterExpression: { "followUp.reason": { $type: "string" } } });
+collabSchema.index({ "followUp.applied.at": -1 }, { partialFilterExpression: { "followUp.applied": { $type: "object" } } });
 
 export type CollabFields = InferSchemaType<typeof collabSchema>;
 export type CollabDoc = HydratedDocument<CollabFields>;
