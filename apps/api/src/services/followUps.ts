@@ -62,17 +62,20 @@ function followUpRow(d: LeanFollowUp) {
  * `due`: collabs whose next check date has passed (oldest first), skipping those with a
  * proposal waiting for an admin. `proposals` / `escalated`: what an admin has to decide.
  * `applied`: drafts the collector changed that no admin has acknowledged (newest first).
+ * `queued`: every collab still being re-checked, whether or not its turn has come (next check first).
  */
 export async function listFollowUps(q: FollowUpListQuery, now = new Date()) {
   const base = { status: { $in: ACTIVE }, "followUp.reason": { $ne: null } };
   const [filter, sort]: [Record<string, unknown>, Record<string, 1 | -1>] =
     q.view === "due"
       ? [{ ...base, "followUp.nextCheckAt": { $lte: now }, "followUp.proposal": null }, { "followUp.nextCheckAt": 1 }]
-      : q.view === "proposals"
-        ? [{ status: { $in: ACTIVE }, "followUp.proposal": { $ne: null } }, { "followUp.proposal.at": 1 }]
-        : q.view === "applied"
-          ? [{ status: { $in: ACTIVE }, "followUp.applied": { $ne: null } }, { "followUp.applied.at": -1 }]
-          : [{ ...base, "followUp.escalatedAt": { $ne: null } }, { "followUp.escalatedAt": 1 }];
+      : q.view === "queued"
+        ? [base, { "followUp.nextCheckAt": 1 }]
+        : q.view === "proposals"
+          ? [{ status: { $in: ACTIVE }, "followUp.proposal": { $ne: null } }, { "followUp.proposal.at": 1 }]
+          : q.view === "applied"
+            ? [{ status: { $in: ACTIVE }, "followUp.applied": { $ne: null } }, { "followUp.applied.at": -1 }]
+            : [{ ...base, "followUp.escalatedAt": { $ne: null } }, { "followUp.escalatedAt": 1 }];
   const docs = await Collab.find(filter)
     .sort({ ...sort, _id: 1 })
     .limit(q.limit)

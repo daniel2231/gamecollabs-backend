@@ -47,13 +47,13 @@ export const FollowUpReport = z
 export type FollowUpReport = z.infer<typeof FollowUpReport>;
 
 /**
- * `due`: what the collector checks next. `proposals`: changes found for collabs under review or published.
+ * `due`: what the collector checks next. `queued`: every collab still being re-checked, by next check date. `proposals`: changes found for collabs under review or published.
  * `applied`: changes the collector made to drafts that an admin has not looked at yet. `escalated`: no news after many checks.
  */
-export const FOLLOW_UP_VIEWS = ["due", "proposals", "applied", "escalated"] as const;
+export const FOLLOW_UP_VIEWS = ["due", "queued", "proposals", "applied", "escalated"] as const;
 export const FollowUpListQuery = z.object({
   view: z.enum(FOLLOW_UP_VIEWS).default("due"),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 export type FollowUpListQuery = z.infer<typeof FollowUpListQuery>;
 

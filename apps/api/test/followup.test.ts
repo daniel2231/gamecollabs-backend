@@ -87,6 +87,9 @@ describe("follow-up queue", () => {
     expect(complete.followUp.reason).toBeNull();
 
     expect(await due()).toEqual([]);
+    // The admin's full queue lists it before its turn comes; complete collabs stay out.
+    const queued = await as(admin).get("/v1/admin/followups?view=queued");
+    expect(queued.body.data.map((r: { slug: string }) => r.slug)).toEqual([tba.slug]);
     await makeDue(tba.id);
     const rows = await due();
     expect(rows).toHaveLength(1);

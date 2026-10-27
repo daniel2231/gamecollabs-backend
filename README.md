@@ -139,7 +139,7 @@ docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs 
 - MCP 도구 (`/mcp`, `/mcp/admin` 둘 다): `list_followups`로 확인할 콜라보를 받고, `report_followup`으로 결과를 보냅니다. 예약 작업 프롬프트는 `prompts/daily-followup.md`입니다.
   - `no_change`: 다음 확인일만 뒤로 미룹니다 (`rev`는 바뀌지 않음).
   - `updated`: **초안은 바로 수정**합니다 (`rev` 확인, 변경 이력 기록, 새 출처는 기존 출처 뒤에 추가). 이때 바뀌기 전 값과 바뀐 내용을 `followUp.applied`에 남겨, 관리자가 확인할 때까지 `applied` 목록과 관리자 화면에 보입니다(여러 번 바뀌면 처음 값 → 마지막 값으로 합칩니다). **검수 중·발행된 콜라보는 수정하지 않고 제안(`followUp.proposal`)으로 저장**하고 알림을 보냅니다. 제안이 처리될 때까지 그 콜라보는 확인 대상에서 빠집니다.
-- 관리용 도구: `followup_queue`(`proposals`/`applied`/`escalated`/`due`), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
+- 관리용 도구: `followup_queue`(`proposals`/`applied`/`escalated`/`due`/`queued`. `queued`는 차례가 안 된 것까지 재확인 중인 전체를 다음 확인일 순으로), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
 - API: `GET /v1/ingest/followups`, `POST /v1/ingest/followups/:id`(수집 토큰), `GET /v1/admin/followups?view=`, `POST /v1/admin/collabs/:id/followup`(`apply`·`dismiss`·`acknowledge`, apply 시 `If-Match` 필요. `acknowledge`는 초안에 자동 반영된 변경을 확인 처리).
 - `followups` 작업이 매일 사유를 다시 계산합니다 (시간이 지나 종료되거나 `month_only`에서 벗어난 콜라보 반영, 기존 데이터 채우기). 새로 대상이 된 콜라보는 바로 확인 대상입니다. 배포 직후 한 번 `pnpm --filter @gamecollabs/api job followups`(컨테이너에서는 `node dist/cli/index.js job followups`)로 기존 데이터를 채우세요.
 
@@ -241,5 +241,6 @@ docker compose exec api node dist/cli/index.js seed-taxonomy
 - 호스트 포트를 열지 않습니다. Cloudflare Tunnel에서 `api.<도메인>` → `http://api:3000`, `mcp.<도메인>` → `http://mcp:3001`로 연결하고, WAF로 `/v1/admin/*`, `/v1/ingest/*`, `/mcp`에 횟수 제한을 겁니다.
 - MongoDB는 Compose 내부 네트워크에만 있고 인증 없이 돕니다. 포트를 외부에 열지 마세요.
 - `main`에 푸시하면 CI가 테스트 후 `ghcr.io/<owner>/gamecollabs-{api,mcp}` 이미지를 올립니다.
-  서버는 자동으로 갱신하지 않으므로, 이미지가 올라오면 `deploy`에서 `docker compose pull api mcp && docker compose up -d api mcp`로 바꿉니다.
+  서버는 자동으로 갱신하지 않으므로, 이미지가 올라오면 `deploy/deploy.sh`를 실행합니다. 이미지를 받아 api·mcp를 다시 띄우고, API가 준비되면 `sync-indexes`까지 하고 상태를 보여줍니다.
+  되돌릴 때는 `./deploy.sh <커밋 sha>`로 그 커밋의 이미지를 띄웁니다(다시 `./deploy.sh`면 최신으로).
 - 클라우드 이전 때는 `READ_ONLY_MODE=true`로 쓰기를 막고 `mongodump`/`mongorestore` 후 `MONGODB_URI`와 DNS만 바꿉니다.
