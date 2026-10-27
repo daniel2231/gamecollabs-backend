@@ -19,6 +19,7 @@ export const SCOPES = [
   "ingest:read",
   "ingest:write",
   "ops:read",
+  "changelog:write",
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 

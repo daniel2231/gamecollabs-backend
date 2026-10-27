@@ -4,3 +4,4 @@ export * from "./collab.js";
 export * from "./entity.js";
 export * from "./ingest.js";
 export * from "./followup.js";
+export * from "./changelog.js";
