@@ -12,6 +12,7 @@ import { flagContentTba } from "./contentTba.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
+import { Changelog } from "../models/changelog.js";
 
 const HELP = `Usage: pnpm --filter @gamecollabs/api cli <command> [options]
 
@@ -66,7 +67,7 @@ async function main() {
   try {
     switch (command) {
       case "sync-indexes": {
-        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun]) await model.syncIndexes();
+        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun, Changelog]) await model.syncIndexes();
         console.log("indexes synced");
         break;
       }

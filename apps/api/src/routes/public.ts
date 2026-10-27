@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { CollabListQuery, Locale, PropertyListQuery, StatsQuery, type Locale as LocaleT } from "@gamecollabs/schema";
+import { ChangelogListQuery, CollabListQuery, Locale, PropertyListQuery, StatsQuery, type Locale as LocaleT } from "@gamecollabs/schema";
 import { z } from "zod";
 import { requireScope } from "../auth/principal.js";
 import { parse } from "../lib/errors.js";
@@ -7,6 +7,7 @@ import { formatDate } from "../lib/period.js";
 import { getPublishedBySlug, listPublic, publicFilter, related } from "../services/collabs.js";
 import { entitySummary, collabCard, collabDetail, pick, publicImage } from "../services/serialize.js";
 import { entityTimeline, featuredProperties, findBySlug, type EntityType } from "../services/entities.js";
+import { changelogPublic, listPublished } from "../services/changelog.js";
 import { stats } from "../services/stats.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
@@ -134,4 +135,10 @@ publicRouter.get("/stats", async (req, res) => {
   const q = parse(StatsQuery, req.query);
   const filter = await publicFilter(q);
   res.json({ data: await stats(filter, q.locale, await taxonomy(), new Date(), q.year) });
+});
+
+/** Published release notes, newest first (cached by the web under `changelog`). */
+publicRouter.get("/changelog", async (req, res) => {
+  const { locale, limit } = parse(ChangelogListQuery, req.query);
+  res.json({ data: (await listPublished(limit)).map((e) => changelogPublic(e, locale)) });
 });

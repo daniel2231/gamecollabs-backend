@@ -41,7 +41,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | --- | --- | --- |
 | Next.js 서버 | `SERVICE_TOKENS` (서비스 토큰) | 공개 조회, 제보 중계 |
 | 관리자 (admin) | Next.js가 GitHub 로그인 후 발급한 HS256 JWT (`sub` = GitHub 로그인, `iss`/`aud` 검증). `users`에 등록된 계정만 통과 | 전체 |
-| 편집자 (editor) | 같은 JWT | 초안 작성·수정, 검수 요청, 엔티티 편집 (발행·병합·분류 추가는 불가) |
+| 편집자 (editor) | 같은 JWT | 초안 작성·수정, 검수 요청, 엔티티 편집 (발행·병합·분류 추가·변경 내역 작성은 불가) |
 | 에이전트 (agent) | `gct_…` API 토큰 (DB에는 sha256만 저장) | draft 생성, draft 상태인 항목만 수정 |
 | 수집 (ingest) | `gct_…` API 토큰 | `/v1/ingest/*`만 사용 |
 
@@ -56,6 +56,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
 | GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 시작 월별 건수(`monthly`), 시작일 없는 건수(`undated`, 월별·연도별에서 빠짐), 분류별 분포(파트너 분류는 콜라보당 한 번), 게임·파트너 IP 순위(`topHosts`, `topPartners`), 회사 역할별 순위(`topCompanies.<role>`, 각 10개). `/v1/collabs`의 분류·기간 필터에 더해 `year`(그해 시작한 콜라보만)를 받는다. `years`는 `year`와 상관없이 시작 연도별 건수 |
 | GET | `/v1/sitemap` | 발행된 콜라보 slug·updatedAt과 그 콜라보에 나오는 작품·회사 slug·updatedAt (작품·회사는 자기 수정 시각과 발행된 콜라보 중 가장 최근 수정 시각 중 늦은 쪽) |
+| GET | `/v1/changelog` | 공개된 변경 내역(최신순: `date` 내림차순, 같은 날이면 나중에 만든 것 먼저). `locale`, `limit`(≤200, 기본 100). 항목은 `{ id, version, date, body }`이고 `body`는 요청 언어의 마크다운 |
 | POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증). `kind: "tip"`(기본, 새 콜라보: `url` 필수, `note` 선택) 또는 `kind: "correction"`(발행된 콜라보의 오류: `collab` slug와 5자 이상 `note` 필수, 근거 `url` 선택, 없는 콜라보면 404). 아직 열린 같은 제보(같은 URL의 tip, 같은 콜라보·내용의 correction)는 다시 쌓지 않고 202 |
 | GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
@@ -67,6 +68,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |
 | GET/POST/PATCH | `/v1/admin/taxonomies` | 분류값 관리 (추가·수정은 관리자만) |
+| GET/POST/PATCH/DELETE | `/v1/admin/changelog[/:id]` | 변경 내역 관리 (관리자만, `changelog:write`). 목록은 비공개 항목 포함 최신순. 본문 `{ version, date: "YYYY-MM-DD", body: { ko, en }, published }`. `version`은 영문·숫자·`.`·`-`·`+`(40자 이하, 중복이면 409 `duplicate_key`), `body`는 마크다운으로 두 언어 모두 필수(각 1만 자 이하), `published`는 기본 `false`. PATCH는 보낸 필드만 바꾸고, DELETE는 204 |
 | GET | `/v1/admin/ingest-runs` | 수집 실행 기록 |
 | GET/PATCH | `/v1/admin/submissions[/:id]` | 제보 큐(`?status=new\|accepted\|dismissed&kind=tip\|correction&limit=`, 최신순, `meta.counts` 종류별 미처리 건수). 항목은 `{ id, kind, status, url, note, locale, collab: { id, slug, status, title: { ko, en } } \| null, createdAt, updatedAt }`. `PATCH { status, collabId? }`로 처리(tip에서 만든 콜라보를 `collabId`로 연결) |
 | POST | `/v1/ingest/:channel` | 수집 채널. `candidates`: 후보 최대 20건 → 건별 `created`/`duplicate`/`rejected` |
@@ -74,11 +76,11 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 
 오류는 항상 `{ "error": { "code": "validation_failed", "message"?, "fields"? } }` 형식입니다. `locale=ko|en`이면 그 언어의 텍스트를 그대로 내려줍니다 (다른 언어로 대체하지 않음). `phase`는 저장하지 않고 요청 시각 기준으로 계산합니다.
 
-발행·수정이 일어나면 `WEB_REVALIDATE_URL`로 `{ "tags": ["collabs", "collab:<slug>", "property:<slug>", "company:<slug>"] }`를 보냅니다. 작품의 `featuredOrder`나 `image`가 바뀌면(또는 홈에 노출 중인 작품의 이름·종류가 바뀌면) `featured` 태그를 함께 보냅니다. 홈 노출 목록의 건수·커버는 콜라보 발행·수정 때 가는 `collabs` 태그로 갱신됩니다.
+발행·수정이 일어나면 `WEB_REVALIDATE_URL`로 `{ "tags": ["collabs", "collab:<slug>", "property:<slug>", "company:<slug>"] }`를 보냅니다. 작품의 `featuredOrder`나 `image`가 바뀌면(또는 홈에 노출 중인 작품의 이름·종류가 바뀌면) `featured` 태그를 함께 보냅니다. 홈 노출 목록의 건수·커버는 콜라보 발행·수정 때 가는 `collabs` 태그로 갱신됩니다. 공개 중이거나 공개였던 변경 내역을 만들거나 고치거나 지우면 `changelog` 태그를 보냅니다.
 
 ## 데이터 모델
 
-PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 그리고 작업 잠금용 `job_locks`.
+PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 변경 내역 `changelog`, 그리고 작업 잠금용 `job_locks`.
 
 - 저장 전 훅이 `facetKeys`(입력 키 + 모든 상위 키 + partner 역할의 kind), `searchTokens`(한글 2-gram, 영문 단어·접두어), `rev`를 계산합니다. 분류 키는 `taxonomy_terms`에 있는 키만 허용합니다.
 - 검색은 `SearchProvider` 인터페이스 뒤의 자체 토큰 인덱스입니다. Atlas Search로 바꿀 때 구현체만 교체합니다.

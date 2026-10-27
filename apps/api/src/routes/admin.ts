@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { Types } from "mongoose";
 import {
   AdminCollabListQuery,
+  ChangelogInput,
+  ChangelogPatch,
   CollabInput,
   CollabPatch,
   CompanyInput,
@@ -50,6 +52,7 @@ import { listFollowUps, resolveFollowUp } from "../services/followUps.js";
 import { lookupCollabs } from "../services/ingest.js";
 import { UPLOAD_MAX_BYTES, mirrorCover, storeUpload } from "../services/media.js";
 import { collabAdmin, entitySummary, propertyAdminFields } from "../services/serialize.js";
+import { changelogAdmin, createEntry, deleteEntry, listAll, updateEntry } from "../services/changelog.js";
 import { createTerm, taxonomy, updateTerm } from "../services/taxonomy.js";
 
 export const adminRouter: Router = Router();
@@ -220,6 +223,26 @@ adminRouter.post("/taxonomies", requireScope("taxonomy:write"), async (req, res)
 adminRouter.patch("/taxonomies/:key", requireScope("taxonomy:write"), async (req, res) => {
   const { term, parentChanged } = await updateTerm(String(req.params.key), parse(TaxonomyTermPatch, req.body));
   res.json({ data: term, meta: parentChanged ? { note: "run the reindex-facets job to refresh collab facets" } : {} });
+});
+
+/* ---------------------------------------------------------------- changelog */
+
+/** Every entry, drafts included, newest first. */
+adminRouter.get("/changelog", requireScope("changelog:write"), async (_req, res) => {
+  res.json({ data: (await listAll()).map(changelogAdmin) });
+});
+
+adminRouter.post("/changelog", requireScope("changelog:write"), async (req, res) => {
+  res.status(201).json({ data: changelogAdmin(await createEntry(parse(ChangelogInput, req.body), principal(req))) });
+});
+
+adminRouter.patch("/changelog/:id", requireScope("changelog:write"), async (req, res) => {
+  res.json({ data: changelogAdmin(await updateEntry(id(req), parse(ChangelogPatch, req.body), principal(req))) });
+});
+
+adminRouter.delete("/changelog/:id", requireScope("changelog:write"), async (req, res) => {
+  await deleteEntry(id(req));
+  res.status(204).end();
 });
 
 /* ---------------------------------------------------------------- operations */

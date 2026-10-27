@@ -5,6 +5,7 @@ import request from "supertest";
 import { loadConfig, setConfig, type Config } from "../src/config.js";
 import { createApp } from "../src/app.js";
 import { generateToken, hashToken } from "../src/auth/principal.js";
+import { Changelog } from "../src/models/changelog.js";
 import { Collab } from "../src/models/collab.js";
 import { Company, Property } from "../src/models/entities.js";
 import { User } from "../src/models/support.js";
@@ -36,7 +37,7 @@ export async function setupDb(overrides: Record<string, string> = {}) {
   const cfg = testConfig(overrides);
   setConfig(cfg);
   await mongoose.connect(cfg.MONGODB_URI);
-  await Promise.all([Collab, Property, Company, User].map((m) => m.init()));
+  await Promise.all([Collab, Property, Company, User, Changelog].map((m) => m.init()));
   await seedTaxonomy(false);
   invalidateTaxonomy();
   return cfg;
@@ -74,6 +75,7 @@ export const as = (token: string) => {
     get: (url: string) => a.get(url).set(h),
     post: (url: string) => a.post(url).set(h),
     patch: (url: string) => a.patch(url).set(h),
+    delete: (url: string) => a.delete(url).set(h),
   };
 };
 
