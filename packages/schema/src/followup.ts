@@ -46,12 +46,17 @@ export const FollowUpReport = z
   .refine((r) => r.outcome !== "updated" || r.rev !== undefined, { message: "updated requires rev", path: ["rev"] });
 export type FollowUpReport = z.infer<typeof FollowUpReport>;
 
-export const FOLLOW_UP_VIEWS = ["due", "proposals", "escalated"] as const;
+/**
+ * `due`: what the collector checks next. `proposals`: changes found for collabs under review or published.
+ * `applied`: changes the collector made to drafts that an admin has not looked at yet. `escalated`: no news after many checks.
+ */
+export const FOLLOW_UP_VIEWS = ["due", "proposals", "applied", "escalated"] as const;
 export const FollowUpListQuery = z.object({
   view: z.enum(FOLLOW_UP_VIEWS).default("due"),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 export type FollowUpListQuery = z.infer<typeof FollowUpListQuery>;
 
-export const FollowUpResolution = z.object({ action: z.enum(["apply", "dismiss"]) });
+/** `apply` / `dismiss` a pending proposal; `acknowledge` marks the changes made to a draft as seen. */
+export const FollowUpResolution = z.object({ action: z.enum(["apply", "dismiss", "acknowledge"]) });
 export type FollowUpResolution = z.infer<typeof FollowUpResolution>;

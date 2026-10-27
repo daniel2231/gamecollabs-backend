@@ -127,6 +127,40 @@ describe("follow-up queue", () => {
     expect(await Revision.countDocuments({ collabId: c.id, action: "update" })).toBe(1);
   });
 
+  it("keeps changes made to drafts listed until an admin acknowledges them", async () => {
+    const c = await draft({ start: inDays(5), end: inDays(30) }, "https://example.com/teaser2", { contentTba: true });
+    const i18n = {
+      ko: { title: "배틀그라운드 모바일 × 진격의 거인", summary: "리바이 스킨이 추가된다." },
+      en: { title: "PUBG Mobile x Attack on Titan", summary: "A Levi skin arrives." },
+    };
+    let res = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev, changes: { i18n }, sources: [{ url: "https://example.com/levi", type: "official" }] });
+    expect(res.body.data).toMatchObject({ result: "applied", rev: c.rev + 1 });
+    res = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev + 1, changes: { contentTba: false }, sources: [{ url: "https://example.com/all", type: "official" }], note: "full list out" });
+    expect(res.body.data).toMatchObject({ result: "applied", rev: c.rev + 2, reason: null });
+
+    const listed = await as(admin).get("/v1/admin/followups?view=applied");
+    expect(listed.body.data).toHaveLength(1);
+    const applied = listed.body.data[0].applied;
+    // The values from before the first change, and both changes folded together.
+    expect(applied.before).toMatchObject({ contentTba: true, i18n: { en: { title: "PUBG Mobile x Attack on Titan" } } });
+    expect(applied.before.i18n.en.summary).not.toBe(i18n.en.summary);
+    expect(applied.changes).toMatchObject({ i18n, contentTba: false });
+    expect(applied.sources.map((s: { url: string }) => s.url)).toEqual(["https://example.com/levi", "https://example.com/all"]);
+    expect(applied).toMatchObject({ rev: c.rev + 2, by: "token:mcp", note: "full list out" });
+    expect((await as(admin).get(`/v1/admin/collabs/${c.id}`)).body.data.followUp.applied).toMatchObject({ rev: c.rev + 2 });
+
+    expect((await as(ingest).post(`/v1/admin/collabs/${c.id}/followup`).send({ action: "acknowledge" })).status).toBe(403);
+    const ack = await as(admin).post(`/v1/admin/collabs/${c.id}/followup`).send({ action: "acknowledge" });
+    expect(ack.status, JSON.stringify(ack.body)).toBe(200);
+    expect(ack.body.data).toMatchObject({ rev: c.rev + 2, followUp: { applied: null } });
+    expect((await as(admin).get("/v1/admin/followups?view=applied")).body.data).toEqual([]);
+    expect((await as(admin).post(`/v1/admin/collabs/${c.id}/followup`).send({ action: "acknowledge" })).status).toBe(404);
+  });
+
   it("keeps re-checking a draft that is still incomplete after an update", async () => {
     const c = await draft({ endKind: "tba" });
     const res = await as(ingest)
