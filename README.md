@@ -54,7 +54,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/properties?featured=true` | 홈 'IP로 찾아보기': `featuredOrder`가 있는 작품을 순서대로(같으면 한국어 이름순, 모든 언어 공통). 발행 콜라보 기준 `collabCount`, `counterpartCount`(함께한 다른 작품 수), `ongoingCount`, 대표 `image`, `latestCover`(커버 있는 발행 콜라보 중 시작일이 가장 최근). 콜라보가 없는 작품도 포함 |
 | GET | `/v1/properties/:slug`, `/v1/companies/:slug` | 엔티티 + 타임라인, 파트너 목록. 이전 slug로도 조회되며 응답의 `slug`가 정식 주소 |
 | GET | `/v1/taxonomies` | 분류 트리와 ko/en 라벨 |
-| GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 월별 건수, 분류별 분포 |
+| GET | `/v1/stats` | 전체 건수, 진행 상태별 건수(`byPhase`), 시작 월별 건수(`monthly`), 시작일 없는 건수(`undated`, 월별·연도별에서 빠짐), 분류별 분포(파트너 분류는 콜라보당 한 번), 게임·파트너 IP 순위(`topHosts`, `topPartners`), 회사 역할별 순위(`topCompanies.<role>`, 각 10개). `/v1/collabs`의 분류·기간 필터에 더해 `year`(그해 시작한 콜라보만)를 받는다. `years`는 `year`와 상관없이 시작 연도별 건수 |
 | GET | `/v1/sitemap` | 발행된 콜라보 slug·updatedAt과 그 콜라보에 나오는 작품·회사 slug·updatedAt (작품·회사는 자기 수정 시각과 발행된 콜라보 중 가장 최근 수정 시각 중 늦은 쪽) |
 | POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증). `kind: "tip"`(기본, 새 콜라보: `url` 필수, `note` 선택) 또는 `kind: "correction"`(발행된 콜라보의 오류: `collab` slug와 5자 이상 `note` 필수, 근거 `url` 선택, 없는 콜라보면 404). 아직 열린 같은 제보(같은 URL의 tip, 같은 콜라보·내용의 correction)는 다시 쌓지 않고 202 |
 | GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |

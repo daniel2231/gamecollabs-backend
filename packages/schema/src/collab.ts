@@ -193,6 +193,10 @@ export const StatsQuery = CollabListQuery.pick({
   from: true,
   to: true,
   locale: true,
+}).extend({
+  /** Only collabs that start in this calendar year (UTC). */
+  year: z.coerce.number().int().min(2000).max(2100).optional(),
 });
+export type StatsQuery = z.infer<typeof StatsQuery>;
 
 export { TaxonomyKey };

@@ -133,5 +133,5 @@ publicRouter.get("/taxonomies", async (req, res) => {
 publicRouter.get("/stats", async (req, res) => {
   const q = parse(StatsQuery, req.query);
   const filter = await publicFilter(q);
-  res.json({ data: await stats(filter, q.locale, await taxonomy()) });
+  res.json({ data: await stats(filter, q.locale, await taxonomy(), new Date(), q.year) });
 });

@@ -267,6 +267,26 @@ describe("public API", () => {
     );
   });
 
+  it("ranks entities and lists years in stats", async () => {
+    const all = (await service().get("/v1/stats?locale=en")).body.data;
+    expect(all.year).toBeNull();
+    expect(all.undated).toBe(0);
+    expect(all.years).toEqual([{ year: 2026, count: 2 }]);
+    expect(all.topPartners).toEqual(
+      expect.arrayContaining([{ slug: "attack-on-titan", name: "Attack on Titan", kind: { key: "partner_category.anime_manga", label: expect.any(String) }, count: 1 }]),
+    );
+    expect(all.topHosts.map((h: { slug: string }) => h.slug)).toContain("pubg-mobile");
+    expect(all.topCompanies.brand_partner).toEqual(expect.arrayContaining([expect.objectContaining({ slug: "krafton", count: 1 })]));
+    expect(all.topCompanies.unspecified).toBeUndefined();
+
+    // A year narrows everything but the list of years.
+    const y2026 = (await service().get("/v1/stats?year=2026")).body.data;
+    expect(y2026).toMatchObject({ year: 2026, total: 2, years: all.years });
+    const y2025 = (await service().get("/v1/stats?year=2025")).body.data;
+    expect(y2025).toMatchObject({ year: 2025, total: 0, monthly: [], topHosts: [], years: all.years });
+    expect((await service().get("/v1/stats?year=1999")).status).toBe(422);
+  });
+
   it("counts collabs by phase in stats", async () => {
     const stats = await service().get("/v1/stats");
     const byPhase = stats.body.data.byPhase;
