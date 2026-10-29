@@ -75,6 +75,7 @@ export const as = (token: string) => {
     get: (url: string) => a.get(url).set(h),
     post: (url: string) => a.post(url).set(h),
     patch: (url: string) => a.patch(url).set(h),
+    put: (url: string) => a.put(url).set(h),
     delete: (url: string) => a.delete(url).set(h),
   };
 };

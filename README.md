@@ -64,6 +64,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/admin/collabs/:id/revisions`, `…/duplicates` | 변경 이력, 중복 후보 |
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
 | GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
+| PUT | `/v1/admin/properties/featured` | 홈 'IP로 찾아보기' 줄 전체를 한 번에 저장: `{ "ids": [...] }` 순서대로 `featuredOrder`를 1, 2, …로 매기고, 목록에 없는 작품은 `null`(노출 안 함)로 바꿈(한 트랜잭션). 중복 id는 422, 없는 id는 400 `invalid_property`. 응답은 목록과 같은 형태로 순서대로. 실제로 바뀐 것이 있을 때만 `featured` 태그를 보냄 |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만). 작품의 `featuredOrder`·`image`는 대상 값을 유지하고, 대상에 없을 때만 원본 값을 옮김 |
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |
 | GET | `/v1/admin/match?name=` | 기존 엔티티와 중복 콜라보 후보 |

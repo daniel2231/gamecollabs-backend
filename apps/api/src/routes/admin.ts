@@ -11,6 +11,7 @@ import {
   CompanyInput,
   CompanyPatch,
   EntitySearchQuery,
+  FeaturedPlacementInput,
   FollowUpListQuery,
   FollowUpResolution,
   Locale,
@@ -45,6 +46,7 @@ import {
   listEntities,
   mergeEntities,
   searchEntities,
+  setFeaturedOrder,
   updateEntity,
   type EntityType,
 } from "../services/entities.js";
@@ -188,6 +190,13 @@ function entityRoutes(type: EntityType, path: string, input: z.ZodType, patch: z
     res.json({ data: entityDoc(type, doc) });
   });
 }
+/** Replaces the home "browse by IP" row with `ids` in order (positions 1, 2, …); returns it like the list. */
+adminRouter.put("/properties/featured", requireScope("entities:write"), async (req, res) => {
+  const { ids } = parse(FeaturedPlacementInput, req.body);
+  const { locale } = parse(AdminLocale, req.query);
+  const [docs, tax] = await Promise.all([setFeaturedOrder(ids), taxonomy()]);
+  res.json({ data: docs.map((doc) => entityHit("property", { doc, exact: false }, locale, tax)) });
+});
 entityRoutes("property", "properties", PropertyInput, PropertyPatch);
 entityRoutes("company", "companies", CompanyInput, CompanyPatch);
 

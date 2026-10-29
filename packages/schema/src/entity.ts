@@ -57,6 +57,18 @@ export type CompanyInput = z.infer<typeof CompanyInput>;
 export const CompanyPatch = patchOf(CompanyInput);
 export type CompanyPatch = z.infer<typeof CompanyPatch>;
 
+/**
+ * `PUT /v1/admin/properties/featured`: the whole home "browse by IP" row in display order.
+ * Each id gets its position (1, 2, …) as `featuredOrder`; properties left out are taken off the row.
+ */
+export const FeaturedPlacementInput = z.object({
+  ids: z
+    .array(ObjectIdString)
+    .max(999)
+    .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length, { message: "duplicate ids" }),
+});
+export type FeaturedPlacementInput = z.infer<typeof FeaturedPlacementInput>;
+
 /** `POST /v1/admin/{properties|companies}/:id/merge`: `from` is absorbed into `:id`. */
 export const MergeInput = z.object({ from: ObjectIdString });
 

@@ -243,6 +243,38 @@ export async function entityTimeline(type: EntityType, id: Types.ObjectId, limit
 }
 
 /**
+ * Replaces the home "browse by IP" row: `ids[i]` gets `featuredOrder` i + 1 and every other
+ * property is taken off the row, in one transaction. Returns the placed properties in order.
+ */
+export async function setFeaturedOrder(ids: string[]) {
+  const objectIds = ids.map((id) => new Types.ObjectId(id));
+  const { docs, changed } = await withTransaction(async (session) => {
+    const found = await Property.find({ _id: { $in: objectIds } }, null, { session }).lean();
+    if (found.length !== ids.length) {
+      const known = new Set(found.map((d) => String(d._id)));
+      throw badRequest("invalid_property", `property not found: ${ids.filter((id) => !known.has(id.toLowerCase())).join(", ")}`);
+    }
+    const removed = await Property.updateMany(
+      { _id: { $nin: objectIds }, featuredOrder: { $ne: null } },
+      { $set: { featuredOrder: null } },
+      { session },
+    );
+    const placed = objectIds.length
+      ? await Property.bulkWrite(
+          objectIds.map((_id, i) => ({ updateOne: { filter: { _id, featuredOrder: { $ne: i + 1 } }, update: { $set: { featuredOrder: i + 1 } } } })),
+          { session },
+        )
+      : null;
+    const docs = await Property.find({ _id: { $in: objectIds } }, null, { session }).lean();
+    const order = new Map(ids.map((id, i) => [id.toLowerCase(), i]));
+    docs.sort((a, b) => order.get(String(a._id))! - order.get(String(b._id))!);
+    return { docs, changed: removed.modifiedCount + (placed?.modifiedCount ?? 0) > 0 };
+  });
+  if (changed) revalidate(["featured"]);
+  return docs;
+}
+
+/**
  * Properties placed on the home "browse by IP" row, by `featuredOrder` then Korean name (same order in every locale),
  * with counts over their published collabs and the cover of the latest one that has a cover.
  * Properties without published collabs are included (the web hides them).

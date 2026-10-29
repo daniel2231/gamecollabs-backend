@@ -198,3 +198,44 @@ describe("GET /v1/properties?featured=true", () => {
     expect((await service().get("/v1/properties")).status).toBe(422);
   });
 });
+
+describe("PUT /v1/admin/properties/featured", () => {
+  const order = async () =>
+    (await Property.find({ featuredOrder: { $ne: null } }).sort({ featuredOrder: 1 }).lean()).map((p) => [p.slug, p.featuredOrder]);
+
+  it("numbers the given properties 1, 2, … in order and takes the rest off the row", async () => {
+    const res = await as(admin).put("/v1/admin/properties/featured").send({ ids: [e.aot.id, e.jagariko.id] });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.data.map((p: { slug: string; featuredOrder: number }) => [p.slug, p.featuredOrder])).toEqual([
+      ["attack-on-titan", 1],
+      ["jagariko", 2],
+    ]);
+    expect(res.body.data[0]).toMatchObject({ name: "진격의 거인", image: { url: "https://media.example.com/covers/aot.webp" } });
+    expect(await order()).toEqual([
+      ["attack-on-titan", 1],
+      ["jagariko", 2],
+    ]);
+    expect(tags()).toEqual(["featured"]);
+  });
+
+  it("sends no tag when nothing changes, and clears the row with an empty list", async () => {
+    await as(admin).put("/v1/admin/properties/featured").send({ ids: [e.aot.id, e.jagariko.id] });
+    expect(tags()).toEqual([]);
+    const res = await as(admin).put("/v1/admin/properties/featured").send({ ids: [] });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+    expect(await order()).toEqual([]);
+    expect(tags()).toEqual(["featured"]);
+  });
+
+  it("rejects duplicates and unknown ids without changing anything", async () => {
+    await as(admin).put("/v1/admin/properties/featured").send({ ids: [e.pubg.id] });
+    let res = await as(admin).put("/v1/admin/properties/featured").send({ ids: [e.aot.id, e.aot.id] });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields.ids).toEqual(["duplicate ids"]);
+    res = await as(admin).put("/v1/admin/properties/featured").send({ ids: [e.aot.id, "0123456789abcdef01234567"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("invalid_property");
+    expect(await order()).toEqual([["pubg-mobile", 1]]);
+  });
+});
