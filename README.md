@@ -155,6 +155,7 @@ docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs 
 | `list_collabs`, `get_collab`, `collab_history` | 초안·발행본 조회(id 또는 slug), 중복 후보, 변경 이력 |
 | `update_collab` | 필드 수정 (`rev` 필수, 보낸 최상위 필드만 교체, 변경 이력에 기록) |
 | `transition_collab` | 검수 요청·발행·반려(사유 필수)·보관·복구 |
+| `list_entities` | 작품·IP 또는 회사 전체 목록(콜라보 수 순). `missing`으로 국가·공식 URL·이미지·원어 이름이 빠진 것만, `partner_category`로 작품 종류별로 거름 |
 | `create_entity`, `update_entity`, `merge_entities` | 작품·회사 생성, 이름·slug 수정, 병합(이전 slug는 리다이렉트) |
 | `mirror_cover` | 커버 이미지를 R2로 복사 |
 

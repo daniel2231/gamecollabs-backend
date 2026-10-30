@@ -39,6 +39,23 @@ beforeAll(async () => {
   api.get("/v1/admin/collabs/:id", (_req, res) => res.json({ data: doc }));
   api.get("/v1/admin/collabs/:id/duplicates", (_req, res) => res.json({ data: [] }));
   api.patch("/v1/admin/collabs/:id", (req, res) => res.json({ data: { ...doc, ...req.body, rev: Number(req.get("if-match")) + 1 } }));
+  const names = (en: string, original: string | null = null) => ({ ko: en, en, original });
+  api.get("/v1/admin/companies", (_req, res) =>
+    res.json({
+      data: [
+        { id: "c".repeat(24), slug: "sega", names: names("SEGA", "セガ"), aliases: [], collabCount: 9, country: "JP", exact: false },
+        { id: "d".repeat(24), slug: "netease-games", names: names("NetEase Games"), aliases: [], collabCount: 4, country: null, exact: false },
+      ],
+    }),
+  );
+  api.get("/v1/admin/properties", (_req, res) =>
+    res.json({
+      data: [
+        { id: "e".repeat(24), slug: "knives-out", names: names("Knives Out", "荒野行動"), aliases: [], collabCount: 5, kind: { key: "partner_category.game", label: "Game" }, officialUrl: null, featuredOrder: null, image: null, exact: false },
+        { id: "f".repeat(24), slug: "monaki", names: names("Monaki"), aliases: [], collabCount: 1, kind: { key: "partner_category.music", label: "Music" }, officialUrl: "https://monaki.example", featuredOrder: 2, image: { url: "https://media.example/m.webp" }, exact: false },
+      ],
+    }),
+  );
   api.post("/v1/admin/properties/:id/merge", (req, res) => res.json({ data: { _id: req.params.id, merged: req.body.from } }));
   api.get("/v1/ingest/followups", (_req, res) => res.json({ data: [{ id: doc.id, slug: doc.slug, status: "draft", rev: 3, reason: "start_tba" }] }));
   api.post("/v1/ingest/followups/:id", (req, res) => res.json({ data: { result: req.body.outcome === "no_change" ? "recorded" : "applied", slug: req.params.id } }));
@@ -248,6 +265,7 @@ describe("admin endpoint", () => {
         "get_collab",
         "get_taxonomy",
         "list_collabs",
+        "list_entities",
         "list_followups",
         "merge_entities",
         "mirror_cover",
@@ -279,6 +297,31 @@ describe("admin endpoint", () => {
 
     const merged = await call("merge_entities", { kind: "property", target_id: "a".repeat(24), source_id: "b".repeat(24) });
     expect(JSON.parse(merged.content[0]!.text)).toEqual({ _id: "a".repeat(24), merged: "b".repeat(24) });
+  });
+
+  it("lists companies and properties, filtered by a missing field or kind", async () => {
+    const companies = JSON.parse((await call("list_entities", { kind: "company", missing: "country" })).content[0]!.text);
+    expect(received.at(-1)).toMatchObject({ path: "/v1/admin/companies?limit=1000&locale=en", auth: `Bearer ${ADMIN_KEY}` });
+    expect(companies).toEqual({
+      total: 1,
+      offset: 0,
+      items: [{ id: "d".repeat(24), slug: "netease-games", names: { ko: "NetEase Games", en: "NetEase Games", original: null }, aliases: [], collabCount: 4, country: null }],
+    });
+
+    const noImage = JSON.parse((await call("list_entities", { kind: "property", missing: "image" })).content[0]!.text);
+    expect(noImage.items.map((e: { slug: string }) => e.slug)).toEqual(["knives-out"]);
+    expect(noImage.items[0]).toMatchObject({ kind: "partner_category.game", officialUrl: null, image: null, featuredOrder: null });
+
+    const music = JSON.parse((await call("list_entities", { kind: "property", partner_category: "partner_category.music" })).content[0]!.text);
+    expect(music.items).toEqual([expect.objectContaining({ slug: "monaki", image: "https://media.example/m.webp", featuredOrder: 2 })]);
+
+    const paged = JSON.parse((await call("list_entities", { kind: "company", offset: 1, limit: 1 })).content[0]!.text);
+    expect(paged).toMatchObject({ total: 2, offset: 1, items: [{ slug: "netease-games" }] });
+
+    const before = received.length;
+    expect((await call("list_entities", { kind: "property", missing: "country" })).isError).toBeTruthy();
+    expect((await call("list_entities", { kind: "company", partner_category: "partner_category.game" })).isError).toBeTruthy();
+    expect(received.length).toBe(before);
   });
 
   it("reads the re-check queue and resolves proposals with If-Match", async () => {

@@ -16,7 +16,7 @@ import {
   PropertyPatch,
   TRANSITION_ACTIONS,
 } from "@gamecollabs/schema";
-import { ApiError, type AdminCollab, type ApiClient, type TaxonomyNode } from "./apiClient.js";
+import { ApiError, type AdminCollab, type AdminEntity, type ApiClient, type TaxonomyNode } from "./apiClient.js";
 import { logger } from "./logger.js";
 
 const INSTRUCTIONS = `Game × IP collab tracker (public sources, human-reviewed).
@@ -72,7 +72,9 @@ Admin tools (editing the live tracker): list_collabs / get_collab to read drafts
 collabs (by id or slug); update_collab to fix fields (pass the rev from get_collab; each top-level
 field you send replaces the stored one, so send complete i18n / sources / parties / companies
 arrays); transition_collab to submit, publish, reject (reason required), archive or reopen;
-find_entity, create_entity, update_entity and merge_entities for games/IPs/companies. Every change
+find_entity, list_entities, create_entity, update_entity and merge_entities for games/IPs/companies
+(list_entities with missing: "country", "official_url", "image" or "original_name" finds the entries
+to fill in; set only what the official site or another public source states). Every change
 is recorded in the collab history (collab_history) and can be undone by editing again. Only change
 what a public source supports, and publish only complete collabs (ko/en text, linked parties,
 category, start date, sources).
@@ -212,6 +214,33 @@ type Logged = (tool: string, args: unknown, ctx: Ctx, fn: () => Promise<CallTool
 
 const IdOrSlug = z.string().trim().min(1).max(200).describe("Collab id (24 hex) or slug");
 const Kind = z.enum(["property", "company"]).describe("property = game/IP, company = company");
+
+/** Fields `list_entities` can filter on by absence, and the entity kind each belongs to (null: both). */
+const ENTITY_GAP_KIND = { country: "company", official_url: "property", image: "property", original_name: null } as const;
+const ENTITY_GAPS = Object.keys(ENTITY_GAP_KIND) as [keyof typeof ENTITY_GAP_KIND, ...(keyof typeof ENTITY_GAP_KIND)[]];
+
+function isMissing(e: AdminEntity, gap: keyof typeof ENTITY_GAP_KIND): boolean {
+  if (gap === "country") return !e.country;
+  if (gap === "official_url") return !e.officialUrl;
+  if (gap === "image") return !e.image?.url;
+  return !e.names?.original;
+}
+
+/** Compact entity row: what update_entity needs plus the fields worth checking. */
+function entityRow(e: AdminEntity) {
+  return {
+    id: e.id,
+    slug: e.slug,
+    names: e.names,
+    aliases: e.aliases,
+    collabCount: e.collabCount,
+    ...(e.country !== undefined ? { country: e.country } : {}),
+    ...(e.kind !== undefined ? { kind: e.kind?.key ?? null } : {}),
+    ...(e.officialUrl !== undefined ? { officialUrl: e.officialUrl } : {}),
+    ...(e.image !== undefined ? { image: e.image?.url ?? null } : {}),
+    ...(e.featuredOrder !== undefined ? { featuredOrder: e.featuredOrder } : {}),
+  };
+}
 const EntityId = z.string().regex(/^[a-f0-9]{24}$/).describe("Entity id from find_entity");
 
 function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
@@ -330,6 +359,33 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
       annotations: { ...write, idempotentHint: true },
     },
     (args, ctx) => logged("mirror_cover", args, ctx, async () => json(await api.mirrorCover(args.id_or_slug))),
+  );
+
+  server.registerTool(
+    "list_entities",
+    {
+      title: "List games/IPs or companies (admin)",
+      description:
+        "Lists every property (game/IP) or company, most collabs first, with id, slug, names, aliases and collab count; companies also carry country, properties their kind (partner_category), officialUrl, image and home placement. `missing` keeps only entries without that field (country: companies only; official_url, image: properties only; original_name: both), e.g. to fill them in with update_entity.",
+      inputSchema: {
+        kind: Kind,
+        missing: z.enum(ENTITY_GAPS).optional(),
+        partner_category: z.string().regex(/^partner_category\.[a-z0-9_]+$/).optional().describe("Properties only: keep this kind, e.g. partner_category.anime"),
+        offset: z.number().int().min(0).max(1000).default(0),
+        limit: z.number().int().min(1).max(500).default(200),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (args, ctx) =>
+      logged("list_entities", args, ctx, async () => {
+        const gapKind = args.missing && ENTITY_GAP_KIND[args.missing];
+        if (gapKind && gapKind !== args.kind) throw new Error(`missing "${args.missing}" only applies to kind "${gapKind}"`);
+        if (args.partner_category && args.kind !== "property") throw new Error('partner_category only applies to kind "property"');
+        const all = (await api.listEntities(args.kind)).filter(
+          (e) => (!args.missing || isMissing(e, args.missing)) && (!args.partner_category || e.kind?.key === args.partner_category),
+        );
+        return json({ total: all.length, offset: args.offset, items: all.slice(args.offset, args.offset + args.limit).map(entityRow) });
+      }),
   );
 
   server.registerTool(

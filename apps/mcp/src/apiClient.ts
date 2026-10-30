@@ -79,6 +79,11 @@ export class ApiClient {
     return this.admin<unknown[]>("GET", `/v1/admin/${entityPath(kind)}?${new URLSearchParams({ q, limit: "20" })}`);
   }
 
+  /** Every property or company (up to 1000), most collabs first. */
+  listEntities(kind: EntityKind) {
+    return this.admin<AdminEntity[]>("GET", `/v1/admin/${entityPath(kind)}?${new URLSearchParams({ limit: "1000", locale: "en" })}`);
+  }
+
   createEntity(kind: EntityKind, body: unknown) {
     return this.admin<unknown>("POST", `/v1/admin/${entityPath(kind)}`, body);
   }
@@ -128,6 +133,20 @@ export type FollowUpRow = { id: string; slug: string; status: string; rev: numbe
 
 export type EntityKind = "property" | "company";
 const entityPath = (kind: EntityKind) => (kind === "property" ? "properties" : "companies");
+
+/** A property or company as the admin entity list returns it (only fields the tools read). */
+export type AdminEntity = {
+  id: string;
+  slug: string;
+  names: { ko: string | null; en: string | null; original: string | null };
+  aliases: string[];
+  collabCount: number;
+  kind?: { key: string; label: string } | null;
+  country?: string | null;
+  officialUrl?: string | null;
+  featuredOrder?: number | null;
+  image?: { url: string | null } | null;
+};
 
 /** The stored collab document as the admin API returns it (only fields the tools read). */
 export type AdminCollab = {
