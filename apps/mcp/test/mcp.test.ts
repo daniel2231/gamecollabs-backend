@@ -56,6 +56,7 @@ beforeAll(async () => {
       ],
     }),
   );
+  api.patch("/v1/admin/:type/:id", (req, res) => res.json({ data: { _id: req.params.id, ...req.body } }));
   api.post("/v1/admin/properties/:id/merge", (req, res) => res.json({ data: { _id: req.params.id, merged: req.body.from } }));
   api.get("/v1/ingest/followups", (_req, res) => res.json({ data: [{ id: doc.id, slug: doc.slug, status: "draft", rev: 3, reason: "start_tba" }] }));
   api.post("/v1/ingest/followups/:id", (req, res) => res.json({ data: { result: req.body.outcome === "no_change" ? "recorded" : "applied", slug: req.params.id } }));
@@ -294,6 +295,11 @@ describe("admin endpoint", () => {
     const upd = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "2026-10-20", endKind: "tba" } } });
     expect(upd.isError).toBeFalsy();
     expect(JSON.parse(upd.content[0]!.text)).toMatchObject({ rev: 4, start: "2026-10-20" });
+
+    await call("update_entity", { kind: "company", id: "d".repeat(24), patch: { country: "CN" } });
+    expect(received.at(-1)).toMatchObject({ path: `/v1/admin/companies/${"d".repeat(24)}`, body: { country: "CN" } });
+    await call("update_entity", { kind: "property", id: "e".repeat(24), patch: { kind: "partner_category.game" } });
+    expect(received.at(-1)).toMatchObject({ path: `/v1/admin/properties/${"e".repeat(24)}`, body: { kind: "partner_category.game" } });
 
     const merged = await call("merge_entities", { kind: "property", target_id: "a".repeat(24), source_id: "b".repeat(24) });
     expect(JSON.parse(merged.content[0]!.text)).toEqual({ _id: "a".repeat(24), merged: "b".repeat(24) });
