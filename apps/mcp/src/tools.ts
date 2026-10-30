@@ -404,7 +404,8 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     {
       title: "Update a game/IP or company (admin)",
       description: "Renames or edits a property or company (fields given replace stored ones). A slug change keeps the old slug as a redirect; collabs referencing it are updated.",
-      inputSchema: { kind: Kind, id: EntityId, patch: z.union([PropertyPatch, CompanyPatch]) },
+      // Strict, or the all-optional PropertyPatch matches a company patch first and strips `country`.
+      inputSchema: { kind: Kind, id: EntityId, patch: z.union([PropertyPatch.strict(), CompanyPatch.strict()]) },
       annotations: { ...write, idempotentHint: true },
     },
     (args, ctx) => logged("update_entity", args, ctx, async () => json(await api.updateEntity(args.kind, args.id, args.patch))),
