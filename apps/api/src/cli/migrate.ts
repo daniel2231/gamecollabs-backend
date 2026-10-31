@@ -347,7 +347,9 @@ export async function migrateMdx(opts: MigrateOptions) {
         };
       }
       doc.set(fields);
-      if (status === "published" && !doc.review?.publishedAt) doc.set("review.publishedAt", fields.period.start ?? new Date());
+      // Publication date approximates the old post date by the start date, but never lies in the future:
+      // a collab announced for next year was published now, and a future date would pin it atop the feed.
+      if (status === "published" && !doc.review?.publishedAt) doc.set("review.publishedAt", publishedAtFor(fields.period.start));
       if (doc.isNew || doc.isModified()) {
         await doc.save({ session });
         await Revision.create([{ collabId: doc._id, rev: doc.rev, actorLabel: "migration", action: existing ? "migration:update" : "migration:create", diff: { file: p.item.file } }], { session });
@@ -380,4 +382,9 @@ async function reconcile(expected: { slug: string; start: string | null; end: st
   const storedCounts = count(docs.map((d) => [...(d.category ? [d.category] : []), ...d.regions, ...d.platforms, ...d.collabTypes]));
   const classificationMismatch = Object.keys({ ...expectedCounts, ...storedCounts }).filter((k) => expectedCounts[k] !== storedCounts[k]);
   return { expected: expected.length, stored: docs.length, missing, periodMismatch, classificationMismatch };
+}
+
+/** First publication date for a migrated collab: its start date, capped at `now`. */
+export function publishedAtFor(start: Date | null | undefined, now = new Date()): Date {
+  return start && start < now ? start : now;
 }

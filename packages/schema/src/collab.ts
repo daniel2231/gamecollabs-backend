@@ -149,8 +149,11 @@ export const TransitionInput = z
   .refine((t) => t.action !== "reject" || !!t.reason, { message: "reject requires a reason", path: ["reason"] });
 export type TransitionInput = z.infer<typeof TransitionInput>;
 
-/** `recent` orders by first publication (newest first), for feeds. */
-export const SORTS = ["start_desc", "start_asc", "recent"] as const;
+/**
+ * `current` (default) puts what matters now first: ongoing (newest start first), upcoming (soonest first),
+ * ended (most recently ended first), then unknown. `recent` orders by first publication (newest first), for feeds.
+ */
+export const SORTS = ["current", "start_desc", "start_asc", "recent"] as const;
 
 /** Query of `GET /v1/collabs`. */
 export const CollabListQuery = z.object({
@@ -166,7 +169,7 @@ export const CollabListQuery = z.object({
   property: CsvList.pipe(z.array(Slug)).optional(),
   company: CsvList.pipe(z.array(Slug)).optional(),
   locale: Locale.default("ko"),
-  sort: z.enum(SORTS).default("start_desc"),
+  sort: z.enum(SORTS).default("current"),
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(24),
 });

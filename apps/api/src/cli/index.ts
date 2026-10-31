@@ -9,6 +9,7 @@ import { seedTaxonomy } from "../seed/run.js";
 import { JOBS, runJob } from "../jobs/index.js";
 import { migrateMdx } from "./migrate.js";
 import { flagContentTba } from "./contentTba.js";
+import { fixPublishedAt } from "./publishedAt.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
@@ -28,6 +29,8 @@ Commands:
   flag-content-tba [--apply] [--slugs a,b]
                                        List active collabs whose summary says the content is still to come;
                                        --apply sets contentTba on them (or only on --slugs) and queues a re-check
+  fix-published-at [--apply]           List collabs whose publication date is in the future (old migrations
+                                       copied the start date); --apply moves it to when they were created
   job <name>                           Run a periodic job now (${Object.keys(JOBS).join(", ")})
 `;
 
@@ -122,6 +125,9 @@ async function main() {
         console.log(JSON.stringify(await flagContentTba({ apply: values.apply, slugs }), null, 2));
         break;
       }
+      case "fix-published-at":
+        console.log(JSON.stringify(await fixPublishedAt({ apply: values.apply }), null, 2));
+        break;
       case "job": {
         const name = positionals[0];
         if (!name) throw new Error(`job name required: ${Object.keys(JOBS).join(", ")}`);

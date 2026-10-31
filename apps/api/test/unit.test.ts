@@ -6,6 +6,7 @@ import { isPrivateAddress } from "../src/lib/safeFetch.js";
 import { TaxonomyIndex, type Term } from "../src/services/taxonomy.js";
 import { startOfKstDay } from "../src/services/ingest.js";
 import { matchOf } from "../src/cli/contentTba.js";
+import { publishedAtFor } from "../src/cli/migrate.js";
 
 describe("search tokens", () => {
   it("indexes Hangul as 2-grams and Latin words with prefixes", () => {
@@ -49,6 +50,15 @@ describe("period and phase", () => {
 
   it("rejects impossible dates", () => {
     expect(() => toStoredPeriod({ start: "2026-02-30" })).toThrow();
+  });
+});
+
+describe("migrated publication date", () => {
+  const now = new Date("2026-10-31T00:00:00Z");
+  it("uses the start date when it has passed and now otherwise", () => {
+    expect(publishedAtFor(new Date("2026-09-01T00:00:00Z"), now).toISOString()).toBe("2026-09-01T00:00:00.000Z");
+    expect(publishedAtFor(new Date("2027-01-15T00:00:00Z"), now)).toBe(now);
+    expect(publishedAtFor(null, now)).toBe(now);
   });
 });
 

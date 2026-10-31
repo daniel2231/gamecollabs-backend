@@ -30,3 +30,18 @@ export function afterCursor(field: string, dir: 1 | -1, cursor: { value: Date | 
     ],
   };
 }
+
+/** Keyset cursor for the `current` sort: phase rank, numeric key and _id of the last item. */
+export function encodeRankCursor(rank: number, key: number, id: Types.ObjectId): string {
+  return Buffer.from(JSON.stringify(["r", rank, key, id.toString()])).toString("base64url");
+}
+
+export function decodeRankCursor(cursor: string): { rank: number; key: number; id: Types.ObjectId } {
+  try {
+    const [tag, rank, key, id] = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as [string, number, number, string];
+    if (tag !== "r" || !Number.isInteger(rank) || !Number.isSafeInteger(key) || !Types.ObjectId.isValid(id)) throw new Error("bad cursor");
+    return { rank, key, id: new Types.ObjectId(id) };
+  } catch {
+    throw badRequest("invalid_cursor");
+  }
+}

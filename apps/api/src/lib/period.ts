@@ -79,3 +79,44 @@ export function phaseFilter(phase: Phase, now = new Date()): Record<string, unkn
       };
   }
 }
+
+/** Order of phases in the `current` sort. */
+export const PHASE_RANK: Record<Phase, number> = { ongoing: 0, upcoming: 1, ended: 2, unknown: 3 };
+
+/**
+ * Aggregation stage adding `_rank` (phase, same rules as `phaseOf`) and `_key` (ascending number inside
+ * the phase) for the `current` sort: ongoing by newest start, upcoming by soonest start, ended by most
+ * recent end, unknown by newest start (no start last).
+ */
+export function currentSortFields(now = new Date()) {
+  const start = { $ifNull: ["$period.start", null] };
+  const until = { $ifNull: ["$period.until", null] };
+  const ms = (field: unknown) => ({ $toLong: field });
+  const neg = (field: unknown) => ({ $multiply: [ms(field), -1] });
+  const rank = {
+    $switch: {
+      branches: [
+        { case: { $eq: [start, null] }, then: PHASE_RANK.unknown },
+        { case: { $lt: [now, start] }, then: PHASE_RANK.upcoming },
+        { case: { $ne: [until, null] }, then: { $cond: [{ $lt: [now, until] }, PHASE_RANK.ongoing, PHASE_RANK.ended] } },
+        { case: { $in: ["$period.endKind", ["permanent", "tba"]] }, then: PHASE_RANK.ongoing },
+      ],
+      default: PHASE_RANK.unknown,
+    },
+  };
+  return {
+    $addFields: {
+      _rank: rank,
+      _key: {
+        $switch: {
+          branches: [
+            { case: { $eq: [start, null] }, then: { $toLong: 0 } },
+            { case: { $lt: [now, start] }, then: ms(start) },
+            { case: { $and: [{ $ne: [until, null] }, { $lte: [until, now] }] }, then: neg(until) },
+          ],
+          default: neg(start),
+        },
+      },
+    },
+  };
+}
