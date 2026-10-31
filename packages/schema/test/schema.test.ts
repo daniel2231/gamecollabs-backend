@@ -4,7 +4,7 @@ import { CollabInput, CollabListQuery, CompanyInput, IngestCandidate, PeriodInpu
 describe("shared schemas", () => {
   it("parses list queries from comma lists and repeated params", () => {
     const q = CollabListQuery.parse({ platform: "platform.mobile,platform.pc", region: ["region.korea", "region.japan"], limit: "10" });
-    expect(q).toMatchObject({ platform: ["platform.mobile", "platform.pc"], region: ["region.korea", "region.japan"], limit: 10, locale: "ko", sort: "start_desc" });
+    expect(q).toMatchObject({ platform: ["platform.mobile", "platform.pc"], region: ["region.korea", "region.japan"], limit: 10, locale: "ko", sort: "current" });
     expect(CollabListQuery.safeParse({ platform: "region.korea" }).success).toBe(false);
     expect(CollabListQuery.safeParse({ limit: "500" }).success).toBe(false);
   });

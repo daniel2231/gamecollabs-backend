@@ -49,7 +49,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`(`start_desc`, `start_asc`, `recent`=발행일순), `cursor`, `limit`(≤100) |
+| GET | `/v1/collabs` | 목록. `q`, `category`, `partner_category`, `region`, `platform`, `collab_type`, `phase`, `from`, `to`, `property`, `company`, `locale`, `sort`(`current`=기본값: 진행 중→예정(가까운 순)→종료(최근 종료 순)→시기 미상, `start_desc`, `start_asc`, `recent`=발행일순), `cursor`, `limit`(≤100) |
 | GET | `/v1/collabs/:slug` | 상세 + 관련 콜라보. 오프라인 콜라보는 `venues: [{ name, address, url }]` (이름은 요청 언어, 주소는 공식 표기 그대로) |
 | GET | `/v1/properties?featured=true` | 홈 'IP로 찾아보기': `featuredOrder`가 있는 작품을 순서대로(같으면 한국어 이름순, 모든 언어 공통). 발행 콜라보 기준 `collabCount`, `counterpartCount`(함께한 다른 작품 수), `ongoingCount`, 대표 `image`, `latestCover`(커버 있는 발행 콜라보 중 시작일이 가장 최근). 콜라보가 없는 작품도 포함 |
 | GET | `/v1/properties/:slug`, `/v1/companies/:slug` | 엔티티 + 타임라인, 파트너 목록. 이전 slug로도 조회되며 응답의 `slug`가 정식 주소 |

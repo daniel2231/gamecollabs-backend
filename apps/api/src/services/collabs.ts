@@ -15,9 +15,9 @@ import { Company, Property } from "../models/entities.js";
 import { Revision } from "../models/support.js";
 import type { Principal } from "../auth/principal.js";
 import { HttpError, badRequest, forbidden, notFound, validationFailed } from "../lib/errors.js";
-import { afterCursor, decodeCursor, encodeCursor } from "../lib/cursor.js";
+import { afterCursor, decodeCursor, decodeRankCursor, encodeCursor, encodeRankCursor } from "../lib/cursor.js";
 import { revalidate } from "../lib/outbound.js";
-import { parseDateInput, phaseFilter, toStoredPeriod } from "../lib/period.js";
+import { currentSortFields, parseDateInput, phaseFilter, toStoredPeriod } from "../lib/period.js";
 import { slugify } from "../lib/text.js";
 import { normalizeUrl } from "../lib/url.js";
 import { search } from "../search/provider.js";
@@ -445,6 +445,7 @@ export async function publicFilter(q: Omit<CollabListQuery, "locale" | "sort" | 
 export async function listPublic(q: CollabListQuery, now = new Date()) {
   if (q.from && q.to && q.from > q.to) throw badRequest("invalid_range", "from is after to");
   const filter = await publicFilter(q, now);
+  if (q.sort === "current") return listCurrent(q, filter, now);
   const dir = q.sort === "start_asc" ? 1 : -1;
   const field = q.sort === "recent" ? "review.publishedAt" : "period.start";
   const page = q.cursor ? { $and: [filter, afterCursor(field, dir, decodeCursor(q.cursor))] } : filter;
@@ -460,6 +461,43 @@ export async function listPublic(q: CollabListQuery, now = new Date()) {
   const last = pageItems.at(-1);
   const lastValue = q.sort === "recent" ? last?.review?.publishedAt : last?.period?.start;
   return { items: pageItems, total, nextCursor: hasMore && last ? encodeCursor(lastValue ?? null, last._id) : null };
+}
+
+type Ranked = CollabFields & { _id: Types.ObjectId; _rank: number; _key: number };
+
+/** `current` sort: phase is computed per request, so the order is an aggregation over the filtered set. */
+async function listCurrent(q: CollabListQuery, filter: Record<string, unknown>, now: Date) {
+  const after = q.cursor ? decodeRankCursor(q.cursor) : null;
+  const [items, total] = await Promise.all([
+    Collab.aggregate<Ranked>([
+      { $match: filter },
+      currentSortFields(now),
+      ...(after
+        ? [
+            {
+              $match: {
+                $or: [
+                  { _rank: { $gt: after.rank } },
+                  { _rank: after.rank, _key: { $gt: after.key } },
+                  { _rank: after.rank, _key: after.key, _id: { $gt: after.id } },
+                ],
+              },
+            },
+          ]
+        : []),
+      { $sort: { _rank: 1, _key: 1, _id: 1 } },
+      { $limit: q.limit + 1 },
+    ]),
+    Collab.countDocuments(filter),
+  ]);
+  const hasMore = items.length > q.limit;
+  const pageItems = items.slice(0, q.limit);
+  const last = pageItems.at(-1);
+  return {
+    items: pageItems.map(({ _rank, _key, ...doc }) => doc),
+    total,
+    nextCursor: hasMore && last ? encodeRankCursor(last._rank, Number(last._key), last._id) : null,
+  };
 }
 
 export async function listAdmin(q: AdminCollabListQuery) {
