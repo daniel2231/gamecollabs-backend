@@ -136,6 +136,14 @@ docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs 
 
 표시된 콜라보는 `rev`가 오르고 변경 이력(`cli:flag-content-tba`)에 남으며, 바로 재확인 대상이 됩니다.
 
+예전 MDX 이관은 시작일을 발행일(`review.publishedAt`)로 넣었기 때문에, 시작일이 미래인 콜라보가 그날까지 RSS와 홈 "최근 등록" 맨 위에 머물렀습니다. `fix-published-at`은 발행일이 미래인 콜라보를 보여 주고(아무것도 바꾸지 않음), `--apply`를 붙이면 발행일을 생성 시각으로 옮깁니다. 이 작업은 `rev`를 올리지 않고 변경 이력(`cli:fix-published-at`)에만 남깁니다.
+
+```bash
+# 컨테이너에서 (deploy 디렉터리). 호스트의 pnpm ... cli는 루트 .env의 개발 DB와 호스트의 빌드(dist)를 씁니다
+docker compose exec api node dist/cli/index.js fix-published-at           # 대상 목록만
+docker compose exec api node dist/cli/index.js fix-published-at --apply   # 발행일 보정
+```
+
 날짜가 다 채워지고 내용도 확정됐거나, 종료됐거나, 보관된 콜라보는 대상에서 빠집니다. `permanent`인 콜라보는 내용이 미정일 때만 남습니다.
 
 - 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).
