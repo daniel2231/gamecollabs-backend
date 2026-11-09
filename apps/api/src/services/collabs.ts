@@ -148,6 +148,11 @@ async function recordRevision(doc: CollabDoc, actor: Principal, action: string, 
 
 /* ------------------------------------------------------------------ cache tags & counts */
 
+/**
+ * Cache tags for a published collab: the list (`collabs`), its own page and the pages of every linked
+ * property and company. The web app's detail pages listen only to their own tag, so every page that
+ * shows this collab must be named here.
+ */
 export function tagsFor(doc: Pick<CollabFields, "slug" | "parties" | "companies">, extraSlugs: string[] = []): string[] {
   return [
     "collabs",
@@ -314,6 +319,8 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
     const before = snapshot(doc);
     const oldSlug = doc.slug;
     const oldEntities = entityIds(doc);
+    // Pages of parties and companies the collab is moved away from must drop it too.
+    const oldTags = tagsFor(doc);
 
     if (patch.slug !== undefined && patch.slug !== doc.slug) {
       if (await Collab.exists({ slug: patch.slug }).session(session)) {
@@ -335,7 +342,7 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
     if (patch.venues !== undefined) doc.set("venues", venuesOf(patch.venues));
 
     const diff = diffOf(before, snapshot(doc));
-    if (Object.keys(diff).length === 0) return { doc, changed: false, oldSlug, oldEntities };
+    if (Object.keys(diff).length === 0) return { doc, changed: false, oldSlug, oldEntities, oldTags };
     if (doc.status === "published") assertPublishable(doc);
     await doc.save({ session });
     await recordRevision(doc, actor, "update", diff, session);
@@ -343,11 +350,9 @@ export async function patchCollab(id: string, patch: CollabPatch, ifMatch: numbe
       const now = entityIds(doc);
       await recountEntities([...oldEntities.properties, ...now.properties], [...oldEntities.companies, ...now.companies], session);
     }
-    return { doc, changed: true, oldSlug, oldEntities };
+    return { doc, changed: true, oldSlug, oldEntities, oldTags };
   });
-  if (result.changed && result.doc.status === "published") {
-    revalidate(tagsFor(result.doc, result.oldSlug !== result.doc.slug ? [result.oldSlug] : []));
-  }
+  if (result.changed && result.doc.status === "published") revalidate([...result.oldTags, ...tagsFor(result.doc)]);
   return result.doc;
 }
 

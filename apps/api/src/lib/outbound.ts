@@ -19,18 +19,25 @@ async function post(url: string, body: unknown, headers: Record<string, string> 
   }
 }
 
+/** The web app's /api/revalidate accepts at most this many tags per request. */
+export const REVALIDATE_BATCH = 50;
+
 /**
  * Asks the Next.js app to drop cached responses for these tags
  * (`collabs`, `collab:<slug>`, `property:<slug>`, `company:<slug>`). Fire and forget.
+ * Detail pages listen only to their own tag, so callers name every page that changed.
  */
 export function revalidate(tags: Iterable<string>): void {
   const cfg = config();
   const list = [...new Set(tags)];
   if (!cfg.WEB_REVALIDATE_URL || list.length === 0) return;
   const headers: Record<string, string> = cfg.WEB_REVALIDATE_SECRET ? { authorization: `Bearer ${cfg.WEB_REVALIDATE_SECRET}` } : {};
-  post(cfg.WEB_REVALIDATE_URL, { tags: list }, headers)
-    .then(() => logger.debug({ tags: list }, "revalidated"))
-    .catch((err) => logger.warn({ err, tags: list }, "revalidate webhook failed"));
+  for (let i = 0; i < list.length; i += REVALIDATE_BATCH) {
+    const batch = list.slice(i, i + REVALIDATE_BATCH);
+    post(cfg.WEB_REVALIDATE_URL, { tags: batch }, headers)
+      .then(() => logger.debug({ tags: batch }, "revalidated"))
+      .catch((err) => logger.warn({ err, tags: batch }, "revalidate webhook failed"));
+  }
 }
 
 /** Operator alert (Slack/Discord compatible `{ text }` webhook). Fire and forget. */

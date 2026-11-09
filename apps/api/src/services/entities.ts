@@ -10,7 +10,7 @@ import { HttpError, badRequest, notFound } from "../lib/errors.js";
 import { revalidate } from "../lib/outbound.js";
 import { nameKey } from "../lib/text.js";
 import { search } from "../search/provider.js";
-import { coverOf, recountEntities, snapshotName } from "./collabs.js";
+import { coverOf, recountEntities, snapshotName, tagsFor } from "./collabs.js";
 import { taxonomy } from "./taxonomy.js";
 
 export type EntityType = "property" | "company";
@@ -83,7 +83,8 @@ async function propagateSnapshot(type: EntityType, entity: { _id: Types.ObjectId
       { session },
     );
   }
-  return affected.filter((c) => c.status === "published").map((c) => `collab:${c.slug}`);
+  // The other parties' and companies' pages list these collabs with the snapshot name, so they change too.
+  return affected.filter((c) => c.status === "published").flatMap((c) => tagsFor(c));
 }
 
 export async function updateEntity(type: EntityType, id: string, patch: PropertyPatch | CompanyPatch) {
@@ -163,7 +164,7 @@ export async function mergeEntities(type: EntityType, targetId: string, fromId: 
         [{ collabId: c._id, rev: c.rev, actorId: actor.userId, actorLabel: actor.label, action: `merge:${type}`, diff: { from: from.slug, into: target.slug } }],
         { session },
       );
-      if (c.status === "published") tags.add(`collab:${c.slug}`);
+      if (c.status === "published") tagsFor(c).forEach((t) => tags.add(t));
     }
 
     const absorbedNames = [from.name.ko, from.name.en, from.name.original, ...from.aliases].filter((n): n is string => !!n);
