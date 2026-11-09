@@ -2,7 +2,7 @@ import cron from "node-cron";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { withJobLock } from "./lock.js";
-import { consistency, exportJson, linkCheck, mirrorCovers, recount, reindexFacets } from "./tasks.js";
+import { consistency, exportJson, linkCheck, mirrorCovers, phaseRollover, recount, reindexFacets } from "./tasks.js";
 import { discoverWithOpenAI } from "./discover.js";
 import { cleanupUploads } from "../services/media.js";
 import { refreshFollowUps } from "../services/followUps.js";
@@ -18,6 +18,8 @@ export const JOBS: Record<string, Job> = {
   "reindex-facets": { run: reindexFacets, schedule: "40 3 * * *", ttlMs: 10 * MIN },
   followups: { run: () => refreshFollowUps(), schedule: "50 3 * * *", ttlMs: 10 * MIN },
   consistency: { run: consistency, schedule: "40 4 * * 0", ttlMs: 20 * MIN },
+  // 09:02 KST = 00:02 UTC, when stored dates (UTC midnight) flip collabs between upcoming, ongoing and ended.
+  "phase-rollover": { run: () => phaseRollover(), schedule: "2 9 * * *", ttlMs: 10 * MIN },
   "mirror-covers": { run: () => mirrorCovers(), schedule: "15 * * * *", ttlMs: 20 * MIN },
   "export-json": { run: () => exportJson(), schedule: "0 5 * * 0", ttlMs: 10 * MIN },
   "cleanup-uploads": { run: () => cleanupUploads(), schedule: "30 5 * * 0", ttlMs: 10 * MIN },

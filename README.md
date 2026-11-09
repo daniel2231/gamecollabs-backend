@@ -177,6 +177,7 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | `followups` | 매일 03:50 | 후속 확인 사유 재계산, 기존 데이터 채우기 |
 | `reindex-facets` | 매일 03:40 | 분류 계층 변경 후 `facetKeys` 재계산 |
 | `consistency` | 일 04:40 | 이름 스냅샷 불일치 수정 |
+| `phase-rollover` | 매일 09:02 | 날짜(UTC 자정)로 단계가 바뀐 공개 콜라보의 웹 캐시 갱신(`collab:`·`property:`·`company:` 태그) |
 | `mirror-covers` | 매시 15분 | 커버 이미지를 R2로 복사 (F-09) |
 | `cleanup-uploads` | 일 05:30 | 어느 콜라보 커버나 작품 이미지도 쓰지 않는 업로드(`covers/`) 중 7일 지난 것 삭제 |
 | `export-json` | 일 05:00 | 컬렉션별 Extended JSON 덤프 (`EXPORT_DIR`, Git 커밋용) |

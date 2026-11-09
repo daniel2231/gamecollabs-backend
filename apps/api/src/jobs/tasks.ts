@@ -7,7 +7,7 @@ import { Company, Property } from "../models/entities.js";
 import { notify, revalidate } from "../lib/outbound.js";
 import { checkUrl, isReachable } from "../lib/safeFetch.js";
 import { mirrorCover } from "../services/media.js";
-import { snapshotName } from "../services/collabs.js";
+import { snapshotName, tagsFor } from "../services/collabs.js";
 import { taxonomy } from "../services/taxonomy.js";
 
 async function pool<T>(items: T[], size: number, fn: (item: T) => Promise<void>) {
@@ -76,7 +76,7 @@ export async function consistency() {
           $elemMatch: { [field]: e._id, $or: [{ "name.ko": { $ne: snap.ko } }, { "name.en": { $ne: snap.en } }, { slug: { $ne: e.slug } }] },
         },
       };
-      const stale = await Collab.find(filter).select({ slug: 1, status: 1 }).lean();
+      const stale = await Collab.find(filter).select({ slug: 1, status: 1, parties: 1, companies: 1 }).lean();
       if (!stale.length) continue;
       const res = await Collab.updateMany(
         { _id: { $in: stale.map((s) => s._id) } },
@@ -84,12 +84,31 @@ export async function consistency() {
         { arrayFilters: [{ [`e.${field}`]: e._id }], timestamps: false },
       );
       fixed += res.modifiedCount;
-      stale.filter((s) => s.status === "published").forEach((s) => tags.add(`collab:${s.slug}`));
+      // Tags from the stored (pre-fix) snapshot: the renamed entity's former slug and the other parties' pages.
+      stale.filter((s) => s.status === "published").forEach((s) => tagsFor(s).forEach((t) => tags.add(t)));
+      tags.add(`${Model === Property ? "property" : "company"}:${e.slug}`);
     }
   }
   if (tags.size) revalidate(["collabs", ...tags]);
   if (fixed) notify(`Consistency check fixed ${fixed} stale name snapshot(s)`);
   return { fixed };
+}
+
+/** Look-back of `phaseRollover`: a day plus slack, so a late or skipped-by-a-minute run misses nothing. */
+const ROLLOVER_WINDOW_MS = 26 * 60 * 60_000;
+
+/**
+ * Daily, just after 00:00 UTC (dates are stored as UTC midnight): phase is computed per request, so the
+ * web app's cached pages of collabs that just started or ended still show the old phase. Drops them.
+ */
+export async function phaseRollover(now = new Date()) {
+  const since = new Date(now.getTime() - ROLLOVER_WINDOW_MS);
+  const window = { $gt: since, $lte: now };
+  const changed = await Collab.find({ status: "published", $or: [{ "period.start": window }, { "period.until": window }] })
+    .select({ slug: 1, parties: 1, companies: 1 })
+    .lean();
+  if (changed.length) revalidate(changed.flatMap((c) => tagsFor(c)));
+  return { changed: changed.length };
 }
 
 /** Recomputes `facetKeys` after taxonomy hierarchy changes. */
