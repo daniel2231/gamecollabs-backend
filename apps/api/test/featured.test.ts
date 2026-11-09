@@ -143,9 +143,12 @@ describe("admin: featuredOrder and image", () => {
 
 describe("GET /v1/properties?featured=true", () => {
   it("lists featured properties in order with counts over their published collabs", async () => {
-    // AoT: ongoing collab with PUBG Mobile (cover, Sep), ended one with Blood Strike (cover, Aug), and a draft.
+    // AoT: ongoing collab with PUBG Mobile (cover, latest start), ended one with Blood Strike (cover, Aug), and a draft.
+    // The ongoing one runs around today, so the test does not go stale as the calendar moves on.
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
     await publish(
       draftBody(e.pubg.id, e.aot.id, {
+        period: { start: day(-30), end: day(60) },
         cover: { storageKey: "covers/sep.webp", credit: "© KRAFTON", alt: { ko: "9월", en: "September" }, width: 1600, height: 900 },
       }),
     );
