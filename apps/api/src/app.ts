@@ -9,6 +9,7 @@ import { HttpError, errorHandler, notFoundHandler } from "./lib/errors.js";
 import { adminRouter } from "./routes/admin.js";
 import { healthRouter } from "./routes/health.js";
 import { ingestRouter } from "./routes/ingest.js";
+import { meRouter, membersRouter } from "./routes/members.js";
 import { publicRouter } from "./routes/public.js";
 import { submissionsRouter } from "./routes/submissions.js";
 
@@ -44,6 +45,8 @@ export function createApp(): Express {
   v1.use("/admin", adminRouter);
   v1.use("/ingest", ingestRouter);
   v1.use("/submissions", submissionsRouter);
+  v1.use("/members", membersRouter);
+  v1.use("/me", meRouter);
   v1.use(publicRouter);
   app.use("/v1", v1);
 

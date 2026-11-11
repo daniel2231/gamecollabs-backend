@@ -14,6 +14,7 @@ import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
 import { Changelog } from "../models/changelog.js";
+import { Bookmark, Member } from "../models/member.js";
 
 const HELP = `Usage: pnpm --filter @gamecollabs/api cli <command> [options]
 
@@ -23,6 +24,8 @@ Commands:
   create-user --github <login> --role <admin|editor> [--name <name>]
   create-token --name <name> --role <agent|ingest|admin>   Prints a new API token once (admin: for the MCP admin tools)
   revoke-token --name <name>
+  set-member --discord <id> --active <true|false>
+                                       Disable a Discord member (sign-in and open sessions stop working) or enable again
   migrate-mdx --dir <content/collab-tracker> [--dry-run] [--allow-unmapped]
               [--fields fields.json] [--mapping mapping.json] [--entity-map entities.json] [--report report.json]
               [--image-base-url https://<old blog domain>] [--update-names]
@@ -45,6 +48,8 @@ async function main() {
     allowPositionals: true,
     options: {
       github: { type: "string" },
+      discord: { type: "string" },
+      active: { type: "string" },
       role: { type: "string" },
       name: { type: "string" },
       update: { type: "boolean", default: false },
@@ -70,7 +75,7 @@ async function main() {
   try {
     switch (command) {
       case "sync-indexes": {
-        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun, Changelog]) await model.syncIndexes();
+        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun, Changelog, Member, Bookmark]) await model.syncIndexes();
         console.log("indexes synced");
         break;
       }
@@ -100,6 +105,12 @@ async function main() {
       case "revoke-token": {
         const res = await User.updateMany({ kind: "token", name: values.name, active: true }, { active: false, $unset: { tokenHash: 1 } });
         console.log(`revoked ${res.modifiedCount} token(s)`);
+        break;
+      }
+      case "set-member": {
+        if (!values.discord || !["true", "false"].includes(values.active ?? "")) throw new Error("--discord and --active true|false are required");
+        const res = await Member.updateOne({ discordId: values.discord }, { active: values.active === "true" });
+        console.log(res.matchedCount ? `member ${values.discord} active=${values.active}` : `no member with Discord id ${values.discord}`);
         break;
       }
       case "migrate-mdx": {

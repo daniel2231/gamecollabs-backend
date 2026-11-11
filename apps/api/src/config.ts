@@ -32,6 +32,8 @@ const EnvSchema = z.object({
   ADMIN_JWT_SECRET: z.string().min(32),
   ADMIN_JWT_ISSUER: z.string().default("gamecollabs-web"),
   ADMIN_JWT_AUDIENCE: z.string().default("gamecollabs-api"),
+  /** Member (Discord login) JWTs: same secret and issuer as admin JWTs, a different audience. */
+  MEMBER_JWT_AUDIENCE: z.string().default("gamecollabs-api-member"),
   CORS_ORIGINS: list,
   /** Blocks every write (runbook: cloud migration). */
   READ_ONLY_MODE: bool,
@@ -63,6 +65,9 @@ const EnvSchema = z.object({
   OPENAI_PRICE_OUTPUT_PER_MTOK: z.coerce.number().nonnegative().default(0),
   DISCOVER_PROMPT_PATH: z.string().default("prompts/daily-discover.md"),
   TRUST_PROXY: z.string().default("loopback"),
+}).refine((env) => env.MEMBER_JWT_AUDIENCE !== env.ADMIN_JWT_AUDIENCE, {
+  path: ["MEMBER_JWT_AUDIENCE"],
+  message: "must differ from ADMIN_JWT_AUDIENCE",
 });
 
 export type Config = z.infer<typeof EnvSchema>;

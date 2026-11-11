@@ -1,9 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { RequestHandler } from "express";
 import type { Types } from "mongoose";
-import { jwtVerify } from "jose";
+import { decodeJwt, jwtVerify } from "jose";
 import { config } from "../config.js";
 import { HttpError, forbidden } from "../lib/errors.js";
+import { Member } from "../models/member.js";
 import { User, type Role } from "../models/support.js";
 
 export const SCOPES = [
@@ -20,11 +21,13 @@ export const SCOPES = [
   "ingest:write",
   "ops:read",
   "changelog:write",
+  /** Create or refresh a member after a Discord login (Next.js server only). */
+  "members:write",
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
 const ROLE_SCOPES: Record<Role | "service", Scope[]> = {
-  service: ["public:read", "submissions:write"],
+  service: ["public:read", "submissions:write", "members:write"],
   admin: [...SCOPES],
   editor: [
     "public:read",
@@ -42,9 +45,11 @@ const ROLE_SCOPES: Record<Role | "service", Scope[]> = {
 };
 
 export type Principal = {
-  kind: "service" | "user";
-  role: Role | "service";
+  kind: "service" | "user" | "member";
+  role: Role | "service" | "member";
   userId: Types.ObjectId | null;
+  /** Set only for members (Discord login). Members have no scopes: `/v1/me` checks this instead. */
+  memberId?: Types.ObjectId;
   label: string;
   scopes: ReadonlySet<Scope>;
 };
@@ -93,9 +98,31 @@ async function resolve(token: string): Promise<Principal> {
     return principalFor(user.role as Role, user._id, `token:${user.name}`);
   }
 
+  const key = new TextEncoder().encode(cfg.ADMIN_JWT_SECRET);
+  // Member JWT issued by the Next.js app after Discord login. Its own audience, so it
+  // never passes the admin check below (and an admin JWT never passes this one).
+  if (audienceOf(token) === cfg.MEMBER_JWT_AUDIENCE) {
+    try {
+      const { payload } = await jwtVerify(token, key, {
+        issuer: cfg.ADMIN_JWT_ISSUER,
+        audience: cfg.MEMBER_JWT_AUDIENCE,
+        algorithms: ["HS256"],
+        requiredClaims: ["exp", "sub"],
+        maxTokenAge: "31d",
+      });
+      if (payload.scope !== "member" || !isObjectId(payload.sub)) throw unauthorized();
+      const member = await Member.findOne({ _id: payload.sub, active: true }, { _id: 1, discordId: 1 }).lean();
+      if (!member) throw unauthorized("member is not active");
+      return { kind: "member", role: "member", userId: null, memberId: member._id, label: `discord:${member.discordId}`, scopes: new Set() };
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      throw unauthorized();
+    }
+  }
+
   // Admin JWT issued by the Next.js app after GitHub login (short-lived, HS256).
   try {
-    const { payload } = await jwtVerify(token, new TextEncoder().encode(cfg.ADMIN_JWT_SECRET), {
+    const { payload } = await jwtVerify(token, key, {
       issuer: cfg.ADMIN_JWT_ISSUER,
       audience: cfg.ADMIN_JWT_AUDIENCE,
       algorithms: ["HS256"],
@@ -110,6 +137,18 @@ async function resolve(token: string): Promise<Principal> {
     throw unauthorized();
   }
 }
+
+/** Unverified `aud` of a JWT, only to pick which check to run. */
+function audienceOf(token: string): string | null {
+  try {
+    const { aud } = decodeJwt(token);
+    return typeof aud === "string" ? aud : null;
+  } catch {
+    return null;
+  }
+}
+
+const isObjectId = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{24}$/i.test(v);
 
 /** Every route requires a token: service token, admin JWT or an API token. */
 export const authenticate: RequestHandler = async (req, _res, next) => {
@@ -133,6 +172,13 @@ export const requireScope =
     if (!scopes.every((s) => p.scopes.has(s))) return next(forbidden(`requires ${scopes.join(", ")}`));
     next();
   };
+
+/** `/v1/me/*`: only a signed-in member (not staff, not the service token). */
+export const requireMember: RequestHandler = (req, _res, next) => {
+  if (!req.principal) return next(unauthorized());
+  if (req.principal.kind !== "member" || !req.principal.memberId) return next(forbidden("requires a member session"));
+  next();
+};
 
 export function hasScope(req: { principal?: Principal }, scope: Scope): boolean {
   return !!req.principal?.scopes.has(scope);
