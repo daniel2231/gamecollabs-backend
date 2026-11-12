@@ -33,3 +33,20 @@ bookmarkSchema.index({ memberId: 1, collabId: 1 }, { unique: true });
 bookmarkSchema.index({ memberId: 1, createdAt: -1, _id: -1 });
 bookmarkSchema.index({ collabId: 1 });
 export const Bookmark = model("Bookmark", bookmarkSchema);
+
+/**
+ * A property or company a member follows. Entity merges move follows to the
+ * surviving entity (services/entities.ts), so a follow never points at a deleted one.
+ */
+const followSchema = new Schema(
+  {
+    memberId: { type: Schema.Types.ObjectId, ref: "Member", required: true },
+    targetType: { type: String, enum: ["property", "company"], required: true },
+    targetId: { type: Schema.Types.ObjectId, required: true },
+  },
+  { timestamps: { createdAt: true, updatedAt: false }, collection: "follows" },
+);
+followSchema.index({ memberId: 1, targetType: 1, targetId: 1 }, { unique: true });
+followSchema.index({ memberId: 1, createdAt: -1 });
+followSchema.index({ targetType: 1, targetId: 1 });
+export const Follow = model("Follow", followSchema);
