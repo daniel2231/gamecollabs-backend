@@ -14,7 +14,7 @@ import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
 import { IngestRun, Revision, Submission } from "../models/support.js";
 import { Changelog } from "../models/changelog.js";
-import { Bookmark, Member } from "../models/member.js";
+import { Bookmark, Follow, Member } from "../models/member.js";
 
 const HELP = `Usage: pnpm --filter @gamecollabs/api cli <command> [options]
 
@@ -75,7 +75,7 @@ async function main() {
   try {
     switch (command) {
       case "sync-indexes": {
-        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun, Changelog, Member, Bookmark]) await model.syncIndexes();
+        for (const model of [Collab, Property, Company, TaxonomyTerm, User, Revision, Submission, IngestRun, Changelog, Member, Bookmark, Follow]) await model.syncIndexes();
         console.log("indexes synced");
         break;
       }

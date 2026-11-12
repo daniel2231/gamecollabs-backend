@@ -60,10 +60,14 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/changelog` | 공개된 변경 내역(최신순: `date` 내림차순, 같은 날이면 나중에 만든 것 먼저). `locale`, `limit`(≤200, 기본 100). 항목은 `{ id, version, date, body }`이고 `body`는 요청 언어의 마크다운 |
 | POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증). `kind: "tip"`(기본, 새 콜라보: `url` 필수, `note` 선택) 또는 `kind: "correction"`(발행된 콜라보의 오류: `collab` slug와 5자 이상 `note` 필수, 근거 `url` 선택, 없는 콜라보면 404). 아직 열린 같은 제보(같은 URL의 tip, 같은 콜라보·내용의 correction)는 다시 쌓지 않고 202 |
 | POST | `/v1/members/discord` | (서비스 토큰) Discord 로그인 직후 회원을 만들거나 프로필(`username`, `globalName`, `avatar` 해시)을 갱신. 처음이면 201, 이미 있으면 200, 비활성 회원이면 403 `member_disabled`. 회원은 `discordId`로만 식별 |
-| GET | `/v1/me` | (회원) 프로필과 `bookmarkCount`(발행 상태인 콜라보만) |
-| DELETE | `/v1/me` | (회원) 계정과 북마크 삭제, 204 |
+| GET | `/v1/me` | (회원) 프로필, `bookmarkCount`(발행 상태인 콜라보만), `followCount` |
+| DELETE | `/v1/me` | (회원) 계정과 북마크·팔로우 삭제, 204 |
 | GET | `/v1/me/bookmarks` | (회원) 저장한 콜라보, 최근 저장순. `locale`, `cursor`, `limit`(≤60, 기본 24). 항목은 `/v1/collabs` 카드 + `bookmarkedAt`. 보관 처리된 콜라보는 빠진다 |
 | GET·PUT·DELETE | `/v1/me/bookmarks/:slug` | (회원) 저장 여부 조회·저장·해제. 응답 `{ bookmarked }`. PUT은 멱등, 회원당 500개까지(넘으면 409 `bookmark_limit`), 발행된 콜라보만. DELETE는 보관된 콜라보도 지운다 |
+| GET | `/v1/me/state` | (회원) 화면의 저장·팔로우 버튼용 한 번 조회: 저장한(발행된) 콜라보 slug, 팔로우한 작품·회사 slug `{ bookmarks, follows: { property, company } }` |
+| GET | `/v1/me/follows` | (회원) 팔로우한 작품·회사, 최근 팔로우순 (`type`, `slug`, `name`, `kind`, `image`, `collabCount`, `followedAt`). `locale` |
+| GET·PUT·DELETE | `/v1/me/follows/:type/:slug` | (회원) `type`은 `property` 또는 `company`. 응답 `{ following }`. PUT은 멱등, 합쳐서 200개까지(넘으면 409 `follow_limit`). 이전 slug도 받는다 |
+| GET | `/v1/me/feed` | (회원) 팔로우한 작품(역할 무관)·회사가 나오는 발행 콜라보, 발행일 최신순. `locale`, `cursor`, `limit`(≤60, 기본 24). 카드 형태는 `/v1/collabs`와 같다 |
 | GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
@@ -87,9 +91,9 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 
 ## 데이터 모델
 
-PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 변경 내역 `changelog`, Discord 회원 `members`와 그 북마크 `bookmarks`, 그리고 작업 잠금용 `job_locks`.
+PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 변경 내역 `changelog`, Discord 회원 `members`와 그 북마크 `bookmarks`·팔로우 `follows`, 그리고 작업 잠금용 `job_locks`.
 
-- 회원은 운영진 계정(`users`)과 컬렉션을 나눠, 회원에게 관리자 역할이 붙을 길이 없게 했습니다. 북마크는 콜라보 `_id`를 가리키므로 slug가 바뀌어도 유지됩니다. `cli set-member --discord <id> --active false`로 회원을 막으면 열린 세션도 바로 통하지 않습니다.
+- 회원은 운영진 계정(`users`)과 컬렉션을 나눠, 회원에게 관리자 역할이 붙을 길이 없게 했습니다. 북마크는 콜라보 `_id`를, 팔로우는 작품·회사 `_id`를 가리키므로 slug가 바뀌어도 유지됩니다. 작품·회사를 병합하면 흡수된 쪽의 팔로우는 남는 쪽으로 옮겨집니다(둘 다 팔로우했으면 하나로). `cli set-member --discord <id> --active false`로 회원을 막으면 열린 세션도 바로 통하지 않습니다.
 
 - 저장 전 훅이 `facetKeys`(입력 키 + 모든 상위 키 + partner 역할의 kind), `searchTokens`(한글 2-gram, 영문 단어·접두어), `rev`를 계산합니다. 분류 키는 `taxonomy_terms`에 있는 키만 허용합니다.
 - 검색은 `SearchProvider` 인터페이스 뒤의 자체 토큰 인덱스입니다. Atlas Search로 바꿀 때 구현체만 교체합니다.

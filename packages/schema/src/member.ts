@@ -30,3 +30,15 @@ export const BookmarkListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(60).default(24),
 });
 export type BookmarkListQuery = z.infer<typeof BookmarkListQuery>;
+
+/** What a member can follow: a property (game or IP) or a company. */
+export const FOLLOW_TYPES = ["property", "company"] as const;
+export const FollowType = z.enum(FOLLOW_TYPES);
+export type FollowType = z.infer<typeof FollowType>;
+
+/** A member can follow this many properties and companies in total. */
+export const MAX_FOLLOWS = 200;
+
+/** Feed of followed properties and companies: newest published first. */
+export const FeedQuery = BookmarkListQuery;
+export type FeedQuery = z.infer<typeof FeedQuery>;

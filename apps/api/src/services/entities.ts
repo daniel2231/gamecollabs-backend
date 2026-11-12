@@ -4,6 +4,7 @@ import { phaseOf } from "../lib/period.js";
 import { withTransaction } from "../db.js";
 import { Collab, collabSearchTokens } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
+import { Follow } from "../models/member.js";
 import { Revision } from "../models/support.js";
 import type { Principal } from "../auth/principal.js";
 import { HttpError, badRequest, notFound } from "../lib/errors.js";
@@ -177,6 +178,17 @@ export async function mergeEntities(type: EntityType, targetId: string, fromId: 
       if (!hasImage(target.image) && hasImage(from.image)) target.set("image", from.toObject().image);
       if (target.featuredOrder != null || from.featuredOrder != null || hasImage(target.image) || hasImage(from.image)) tags.add("featured");
       await Property.updateMany({ parentId: from._id }, { parentId: target._id }, { session });
+    }
+    // Members who followed the absorbed entity now follow the target (once, if they followed both).
+    const movedFollowers = await Follow.find({ targetType: type, targetId: from._id }, { memberId: 1 }, { session }).lean();
+    if (movedFollowers.length) {
+      const already = await Follow.find(
+        { targetType: type, targetId: target._id, memberId: { $in: movedFollowers.map((f) => f.memberId) } },
+        { memberId: 1 },
+        { session },
+      ).lean();
+      await Follow.deleteMany({ targetType: type, targetId: from._id, memberId: { $in: already.map((f) => f.memberId) } }, { session });
+      await Follow.updateMany({ targetType: type, targetId: from._id }, { targetId: target._id }, { session });
     }
     await modelOf(type).deleteOne({ _id: from._id }, { session });
     await target.save({ session });

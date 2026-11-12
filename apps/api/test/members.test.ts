@@ -123,3 +123,76 @@ describe("bookmarks", () => {
     expect((await as(token).get("/v1/me")).status).toBe(401);
   });
 });
+
+describe("follows and feed", () => {
+  it("follows properties and companies and builds a feed of their published collabs", async () => {
+    const viaProperty = await publish(draftBody(e.blood.id, e.taiko.id, { sources: [{ url: "https://example.com/feed-prop" }] }));
+    const viaCompany = await publish(
+      draftBody(e.jagariko.id, e.pubg.id, { sources: [{ url: "https://example.com/feed-company" }], companies: [{ companyId: e.krafton.id, role: "publisher" }] }),
+    );
+    const { token } = await login("723456789012345678");
+    const me = as(token);
+
+    expect((await me.get("/v1/me/feed")).body).toMatchObject({ data: [], meta: { total: 0, nextCursor: null } });
+    expect((await me.put("/v1/me/follows/property/blood-strike")).body.data.following).toBe(true);
+    expect((await me.put("/v1/me/follows/property/blood-strike")).status).toBe(200); // idempotent
+    expect((await me.put("/v1/me/follows/company/krafton")).status).toBe(200);
+    expect((await me.put("/v1/me/follows/property/no-such-thing")).status).toBe(404);
+    expect((await me.put("/v1/me/follows/planet/krafton")).status).toBe(422);
+    expect((await me.get("/v1/me/follows/company/krafton")).body.data.following).toBe(true);
+
+    const follows = await me.get("/v1/me/follows?locale=en");
+    expect(follows.body.data.map((f: { type: string; slug: string }) => `${f.type}:${f.slug}`)).toEqual(["company:krafton", "property:blood-strike"]);
+    expect(follows.body.data[1].name).toBe("Blood Strike");
+
+    const feed = await me.get("/v1/me/feed?limit=1");
+    expect(feed.status, JSON.stringify(feed.body)).toBe(200);
+    expect(feed.body.meta.total).toBeGreaterThanOrEqual(2);
+    const all = [...feed.body.data];
+    let cursor = feed.body.meta.nextCursor;
+    while (cursor) {
+      const next = await me.get(`/v1/me/feed?limit=1&cursor=${cursor}`);
+      all.push(...next.body.data);
+      cursor = next.body.meta.nextCursor;
+    }
+    const slugs = all.map((c: { slug: string }) => c.slug);
+    expect(slugs).toEqual(expect.arrayContaining([viaProperty.slug, viaCompany.slug]));
+    expect(new Set(slugs).size).toBe(slugs.length);
+    expect(slugs).toHaveLength(feed.body.meta.total);
+
+    const state = await me.get("/v1/me/state");
+    expect(state.body.data.follows).toEqual({ property: ["blood-strike"], company: ["krafton"] });
+    expect((await me.get("/v1/me")).body.data.followCount).toBe(2);
+
+    expect((await me.delete("/v1/me/follows/company/krafton")).body.data.following).toBe(false);
+    expect((await me.get("/v1/me/state")).body.data.follows.company).toEqual([]);
+  });
+
+  it("lists saved collab slugs in the state", async () => {
+    const collab = await publish(draftBody(e.blood.id, e.jagariko.id, { sources: [{ url: "https://example.com/state-bm" }] }));
+    const { token } = await login("823456789012345678");
+    await as(token).put(`/v1/me/bookmarks/${collab.slug}`);
+    expect((await as(token).get("/v1/me/state")).body.data.bookmarks).toEqual([collab.slug]);
+  });
+
+  it("moves follows to the surviving entity when entities are merged", async () => {
+    const [keep, absorb] = await Promise.all([
+      as(admin).post("/v1/admin/properties").send({ slug: "merge-keep", kind: "partner_category.game", name: { ko: "남는 작품", en: "Kept" } }),
+      as(admin).post("/v1/admin/properties").send({ slug: "merge-absorb", kind: "partner_category.game", name: { ko: "흡수 작품", en: "Absorbed" } }),
+    ]);
+    expect(keep.status, JSON.stringify(keep.body)).toBe(201);
+    const both = await login("923456789012345678");
+    const onlyAbsorbed = await login("993456789012345678");
+    await as(both.token).put("/v1/me/follows/property/merge-keep");
+    await as(both.token).put("/v1/me/follows/property/merge-absorb");
+    await as(onlyAbsorbed.token).put("/v1/me/follows/property/merge-absorb");
+
+    const merged = await as(admin).post(`/v1/admin/properties/${keep.body.data._id}/merge`).send({ from: absorb.body.data._id });
+    expect(merged.status, JSON.stringify(merged.body)).toBe(200);
+
+    expect((await as(both.token).get("/v1/me/state")).body.data.follows.property).toEqual(["merge-keep"]);
+    expect((await as(onlyAbsorbed.token).get("/v1/me/state")).body.data.follows.property).toEqual(["merge-keep"]);
+    // The former slug still resolves
+    expect((await as(onlyAbsorbed.token).get("/v1/me/follows/property/merge-absorb")).body.data.following).toBe(true);
+  });
+});
