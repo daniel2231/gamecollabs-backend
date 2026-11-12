@@ -8,6 +8,7 @@ import { generateToken, hashToken } from "../src/auth/principal.js";
 import { Changelog } from "../src/models/changelog.js";
 import { Collab } from "../src/models/collab.js";
 import { Company, Property } from "../src/models/entities.js";
+import { Bookmark, Member } from "../src/models/member.js";
 import { User } from "../src/models/support.js";
 import { seedTaxonomy } from "../src/seed/run.js";
 import { invalidateTaxonomy } from "../src/services/taxonomy.js";
@@ -37,7 +38,7 @@ export async function setupDb(overrides: Record<string, string> = {}) {
   const cfg = testConfig(overrides);
   setConfig(cfg);
   await mongoose.connect(cfg.MONGODB_URI);
-  await Promise.all([Collab, Property, Company, User, Changelog].map((m) => m.init()));
+  await Promise.all([Collab, Property, Company, User, Changelog, Member, Bookmark].map((m) => m.init()));
   await seedTaxonomy(false);
   invalidateTaxonomy();
   return cfg;
@@ -57,6 +58,18 @@ export async function adminJwt(login: string, role: "admin" | "editor" = "admin"
     .setSubject(login)
     .setIssuer("gamecollabs-web")
     .setAudience("gamecollabs-api")
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(new TextEncoder().encode(JWT_SECRET));
+}
+
+/** Member JWT as the web signs it after a Discord login (sub = member id). */
+export function memberJwt(memberId: string, opts: { audience?: string; scope?: string } = {}) {
+  return new SignJWT({ scope: opts.scope ?? "member" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(memberId)
+    .setIssuer("gamecollabs-web")
+    .setAudience(opts.audience ?? "gamecollabs-api-member")
     .setIssuedAt()
     .setExpirationTime("10m")
     .sign(new TextEncoder().encode(JWT_SECRET));

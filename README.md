@@ -42,6 +42,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | Next.js 서버 | `SERVICE_TOKENS` (서비스 토큰) | 공개 조회, 제보 중계 |
 | 관리자 (admin) | Next.js가 GitHub 로그인 후 발급한 HS256 JWT (`sub` = GitHub 로그인, `iss`/`aud` 검증). `users`에 등록된 계정만 통과 | 전체 |
 | 편집자 (editor) | 같은 JWT | 초안 작성·수정, 검수 요청, 엔티티 편집 (발행·병합·분류 추가·변경 내역 작성은 불가) |
+| 회원 (member) | Next.js가 Discord 로그인 후 발급한 HS256 JWT (같은 비밀값·`iss`, `aud` = `MEMBER_JWT_AUDIENCE`(기본 `gamecollabs-api-member`), `scope: "member"`, `sub` = 회원 id). `members`에서 활성 회원만 통과 | `/v1/me/*`만 (공개 조회·관리자 경로는 403). 관리자 JWT와 `aud`가 달라 서로 대신 쓸 수 없다 |
 | 에이전트 (agent) | `gct_…` API 토큰 (DB에는 sha256만 저장) | draft 생성, draft 상태인 항목만 수정 |
 | 수집 (ingest) | `gct_…` API 토큰 | `/v1/ingest/*`만 사용 |
 
@@ -58,6 +59,11 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/sitemap` | 발행된 콜라보 slug·updatedAt과 그 콜라보에 나오는 작품·회사 slug·updatedAt (작품·회사는 자기 수정 시각과 발행된 콜라보 중 가장 최근 수정 시각 중 늦은 쪽) |
 | GET | `/v1/changelog` | 공개된 변경 내역(최신순: `date` 내림차순, 같은 날이면 나중에 만든 것 먼저). `locale`, `limit`(≤200, 기본 100). 항목은 `{ id, version, date, body }`이고 `body`는 요청 언어의 마크다운 |
 | POST | `/v1/submissions` | 제보 (honeypot, IP당 시간당 10건, `TURNSTILE_SECRET` 설정 시 Turnstile 검증). `kind: "tip"`(기본, 새 콜라보: `url` 필수, `note` 선택) 또는 `kind: "correction"`(발행된 콜라보의 오류: `collab` slug와 5자 이상 `note` 필수, 근거 `url` 선택, 없는 콜라보면 404). 아직 열린 같은 제보(같은 URL의 tip, 같은 콜라보·내용의 correction)는 다시 쌓지 않고 202 |
+| POST | `/v1/members/discord` | (서비스 토큰) Discord 로그인 직후 회원을 만들거나 프로필(`username`, `globalName`, `avatar` 해시)을 갱신. 처음이면 201, 이미 있으면 200, 비활성 회원이면 403 `member_disabled`. 회원은 `discordId`로만 식별 |
+| GET | `/v1/me` | (회원) 프로필과 `bookmarkCount`(발행 상태인 콜라보만) |
+| DELETE | `/v1/me` | (회원) 계정과 북마크 삭제, 204 |
+| GET | `/v1/me/bookmarks` | (회원) 저장한 콜라보, 최근 저장순. `locale`, `cursor`, `limit`(≤60, 기본 24). 항목은 `/v1/collabs` 카드 + `bookmarkedAt`. 보관 처리된 콜라보는 빠진다 |
+| GET·PUT·DELETE | `/v1/me/bookmarks/:slug` | (회원) 저장 여부 조회·저장·해제. 응답 `{ bookmarked }`. PUT은 멱등, 회원당 500개까지(넘으면 409 `bookmark_limit`), 발행된 콜라보만. DELETE는 보관된 콜라보도 지운다 |
 | GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
@@ -81,7 +87,9 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 
 ## 데이터 모델
 
-PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 변경 내역 `changelog`, 그리고 작업 잠금용 `job_locks`.
+PRD의 컬렉션을 그대로 따릅니다: `collabs`, `properties`(게임·IP 통합), `companies`, `taxonomy_terms`, `users`, `revisions`, `submissions`, `ingest_runs`, 변경 내역 `changelog`, Discord 회원 `members`와 그 북마크 `bookmarks`, 그리고 작업 잠금용 `job_locks`.
+
+- 회원은 운영진 계정(`users`)과 컬렉션을 나눠, 회원에게 관리자 역할이 붙을 길이 없게 했습니다. 북마크는 콜라보 `_id`를 가리키므로 slug가 바뀌어도 유지됩니다. `cli set-member --discord <id> --active false`로 회원을 막으면 열린 세션도 바로 통하지 않습니다.
 
 - 저장 전 훅이 `facetKeys`(입력 키 + 모든 상위 키 + partner 역할의 kind), `searchTokens`(한글 2-gram, 영문 단어·접두어), `rev`를 계산합니다. 분류 키는 `taxonomy_terms`에 있는 키만 허용합니다.
 - 검색은 `SearchProvider` 인터페이스 뒤의 자체 토큰 인덱스입니다. Atlas Search로 바꿀 때 구현체만 교체합니다.
