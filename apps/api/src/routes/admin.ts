@@ -1,7 +1,7 @@
 import { Router, type Request, type RequestHandler } from "express";
 import multer from "multer";
 import { z } from "zod";
-import type { Types } from "mongoose";
+import { Types } from "mongoose";
 import {
   AdminCollabListQuery,
   ChangelogInput,
@@ -51,6 +51,8 @@ import {
   type EntityType,
 } from "../services/entities.js";
 import { listFollowUps, resolveFollowUp } from "../services/followUps.js";
+import { bookmarkCounts, followerCounts } from "../services/members.js";
+import { adminMembersRouter } from "./adminMembers.js";
 import { lookupCollabs } from "../services/ingest.js";
 import { UPLOAD_MAX_BYTES, mirrorCover, storeUpload } from "../services/media.js";
 import { collabAdmin, entitySummary, propertyAdminFields } from "../services/serialize.js";
@@ -58,6 +60,7 @@ import { changelogAdmin, createEntry, deleteEntry, listAll, updateEntry } from "
 import { createTerm, taxonomy, updateTerm } from "../services/taxonomy.js";
 
 export const adminRouter: Router = Router();
+adminRouter.use("/members", adminMembersRouter);
 
 const id = (req: Request) => String(req.params.id);
 
@@ -74,9 +77,9 @@ function ifMatch(req: Request): number | null {
 
 adminRouter.get("/collabs", requireScope("collabs:read_internal"), async (req, res) => {
   const page = await listAdmin(parse(AdminCollabListQuery, req.query));
-  const [counts, duplicates] = await Promise.all([statusCounts(), duplicateCounts(page.items)]);
+  const [counts, duplicates, saved] = await Promise.all([statusCounts(), duplicateCounts(page.items), bookmarkCounts(page.items.map((d) => d._id))]);
   res.json({
-    data: page.items.map((d, i) => ({ ...collabAdmin(d), duplicateCount: duplicates[i] })),
+    data: page.items.map((d, i) => ({ ...collabAdmin(d), duplicateCount: duplicates[i], bookmarkCount: saved.get(d._id.toString()) ?? 0 })),
     meta: { nextCursor: page.nextCursor, counts },
   });
 });
@@ -89,7 +92,9 @@ adminRouter.post("/collabs", requireScope("collabs:write"), async (req, res) => 
 
 adminRouter.get("/collabs/:id", requireScope("collabs:read_internal"), async (req, res) => {
   const doc = await getById(id(req));
-  res.setHeader("etag", `"${doc.rev}"`).json({ data: collabAdmin(doc.toObject()) });
+  // How many members saved it: the editor warns before archiving (it drops out of their lists)
+  const saved = await bookmarkCounts([doc._id]);
+  res.setHeader("etag", `"${doc.rev}"`).json({ data: { ...collabAdmin(doc.toObject()), bookmarkCount: saved.get(doc._id.toString()) ?? 0 } });
 });
 
 adminRouter.patch("/collabs/:id", requireScope("collabs:write"), async (req, res) => {
@@ -161,6 +166,15 @@ function entityHit(type: EntityType, hit: EntityHit, locale: z.infer<typeof Loca
   return { ...entitySummary(hit.doc, locale, tax), ...(type === "property" ? propertyAdminFields(hit.doc) : {}), exact: hit.exact };
 }
 
+/** Adds how many members follow each entity (home placement, merges). */
+async function withFollowers<T extends { id: string }>(type: EntityType, rows: T[]) {
+  const counts = await followerCounts(
+    type,
+    rows.map((r) => new Types.ObjectId(r.id)),
+  );
+  return rows.map((r) => ({ ...r, followerCount: counts.get(r.id) ?? 0 }));
+}
+
 /** Stored document; a property's image in the same form as a collab cover in the admin API. */
 function entityDoc(type: EntityType, doc: { toObject(): Record<string, unknown> & Parameters<typeof propertyAdminFields>[0] }) {
   const obj = doc.toObject();
@@ -173,7 +187,7 @@ function entityRoutes(type: EntityType, path: string, input: z.ZodType, patch: z
     const { locale } = parse(AdminLocale, req.query);
     const tax = await taxonomy();
     const hits = q.q ? await searchEntities(type, q.q, q.limit ?? 10) : await listEntities(type, q.limit ?? 1000);
-    res.json({ data: hits.map((h) => entityHit(type, h, locale, tax)) });
+    res.json({ data: await withFollowers(type, hits.map((h) => entityHit(type, h, locale, tax))) });
   });
   adminRouter.post(`/${path}`, requireScope("entities:write"), async (req, res) => {
     const body = parse(input, req.body);
@@ -195,7 +209,7 @@ adminRouter.put("/properties/featured", requireScope("entities:write"), async (r
   const { ids } = parse(FeaturedPlacementInput, req.body);
   const { locale } = parse(AdminLocale, req.query);
   const [docs, tax] = await Promise.all([setFeaturedOrder(ids), taxonomy()]);
-  res.json({ data: docs.map((doc) => entityHit("property", { doc, exact: false }, locale, tax)) });
+  res.json({ data: await withFollowers("property", docs.map((doc) => entityHit("property", { doc, exact: false }, locale, tax))) });
 });
 entityRoutes("property", "properties", PropertyInput, PropertyPatch);
 entityRoutes("company", "companies", CompanyInput, CompanyPatch);

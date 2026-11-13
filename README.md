@@ -41,7 +41,7 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | --- | --- | --- |
 | Next.js 서버 | `SERVICE_TOKENS` (서비스 토큰) | 공개 조회, 제보 중계 |
 | 관리자 (admin) | Next.js가 GitHub 로그인 후 발급한 HS256 JWT (`sub` = GitHub 로그인, `iss`/`aud` 검증). `users`에 등록된 계정만 통과 | 전체 |
-| 편집자 (editor) | 같은 JWT | 초안 작성·수정, 검수 요청, 엔티티 편집 (발행·병합·분류 추가·변경 내역 작성은 불가) |
+| 편집자 (editor) | 같은 JWT | 초안 작성·수정, 검수 요청, 엔티티 편집 (발행·병합·분류 추가·변경 내역 작성·회원 관리는 불가) |
 | 회원 (member) | Next.js가 Discord 로그인 후 발급한 HS256 JWT (같은 비밀값·`iss`, `aud` = `MEMBER_JWT_AUDIENCE`(기본 `gamecollabs-api-member`), `scope: "member"`, `sub` = 회원 id). `members`에서 활성 회원만 통과 | `/v1/me/*`만 (공개 조회·관리자 경로는 403). 관리자 JWT와 `aud`가 달라 서로 대신 쓸 수 없다 |
 | 에이전트 (agent) | `gct_…` API 토큰 (DB에는 sha256만 저장) | draft 생성, draft 상태인 항목만 수정 |
 | 수집 (ingest) | `gct_…` API 토큰 | `/v1/ingest/*`만 사용 |
@@ -68,12 +68,16 @@ pnpm test        # 통합 테스트는 위 레플리카 셋을 사용 (TEST_MONG
 | GET | `/v1/me/follows` | (회원) 팔로우한 작품·회사, 최근 팔로우순 (`type`, `slug`, `name`, `kind`, `image`, `collabCount`, `followedAt`). `locale` |
 | GET·PUT·DELETE | `/v1/me/follows/:type/:slug` | (회원) `type`은 `property` 또는 `company`. 응답 `{ following }`. PUT은 멱등, 합쳐서 200개까지(넘으면 409 `follow_limit`). 이전 slug도 받는다 |
 | GET | `/v1/me/feed` | (회원) 팔로우한 작품(역할 무관)·회사가 나오는 발행 콜라보, 발행일 최신순. `locale`, `cursor`, `limit`(≤60, 기본 24). 카드 형태는 `/v1/collabs`와 같다 |
-| GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
+| GET | `/v1/admin/members` | (관리자, `members:manage`) Discord 회원 목록, 가입 최신순. `q`(사용자 이름·표시 이름 부분 일치, 숫자 17~20자리면 Discord ID), `status`(`all`·`active`·`disabled`), `cursor`, `limit`(≤100). 회원별 `bookmarkCount`·`followCount` |
+| PATCH | `/v1/admin/members/:id` | (관리자) `{ active }`로 차단·해제. 차단하면 열린 세션도 바로 막힌다 |
+| DELETE | `/v1/admin/members/:id` | (관리자) 회원과 저장·팔로우 삭제, 204 |
+| GET | `/v1/admin/members/stats` | (`ops:read`, 편집자 포함) 개인정보 없는 숫자만: 회원 수(전체·활성·차단·7일/30일 신규·30일 내 로그인), 최근 12주 주별 가입(월요일 기준 UTC), 저장·팔로우 총계, 많이 저장된 콜라보·많이 팔로우된 작품·회사 10개 |
+| GET/POST | `/v1/admin/collabs` | 내부 목록(`meta.counts` 상태별 건수, 검수 중 항목의 `duplicateCount`, 저장한 회원 수 `bookmarkCount`) / 초안 생성 (항상 `draft`, 중복 후보 반환) |
 | GET/PATCH | `/v1/admin/collabs/:id` | 조회 / 수정 (`If-Match: <rev>` 필수, 불일치 시 412) |
 | POST | `/v1/admin/collabs/:id/transition` | `submit`, `publish`(관리자만), `archive`, `reject`(사유 필수), `reopen` |
 | GET | `/v1/admin/collabs/:id/revisions`, `…/duplicates` | 변경 이력, 중복 후보 |
 | POST | `/v1/admin/collabs/:id/cover/mirror` | 커버 이미지를 R2로 복사 |
-| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
+| GET/POST/PATCH | `/v1/admin/properties`, `/v1/admin/companies` | 자동완성(`?q=`, 없으면 전체 목록, 팔로워 수 `followerCount` 포함), 생성, 수정 (이름 변경은 같은 트랜잭션에서 스냅샷 갱신). 작품은 홈 노출용 `featuredOrder`(1~999, `null`이면 노출 안 함)와 `image`(콜라보 `cover`와 같은 형태, `storageKey`나 `originalUrl` 필수, 빈 `credit`·`alt`는 null로 저장)를 함께 주고받음. 본문에서 생략하면 기존 값 유지, `null`이면 해제 |
 | PUT | `/v1/admin/properties/featured` | 홈 'IP로 찾아보기' 줄 전체를 한 번에 저장: `{ "ids": [...] }` 순서대로 `featuredOrder`를 1, 2, …로 매기고, 목록에 없는 작품은 `null`(노출 안 함)로 바꿈(한 트랜잭션). 중복 id는 422, 없는 id는 400 `invalid_property`. 응답은 목록과 같은 형태로 순서대로. 실제로 바뀐 것이 있을 때만 `featured` 태그를 보냄 |
 | POST | `/v1/admin/{properties,companies}/:id/merge` | `{ from }`을 `:id`로 병합 (관리자만). 작품의 `featuredOrder`·`image`는 대상 값을 유지하고, 대상에 없을 때만 원본 값을 옮김 |
 | POST | `/v1/admin/media` | 커버 업로드 (multipart `file`, JPEG·PNG·WebP를 바이트로 확인, 5MB·4천만 픽셀 이하). 방향 보정 후 EXIF·GPS를 지우고 긴 변 1600px WebP로 다시 인코딩해 `covers/<sha256>.webp`에 저장. 응답 `201 { storageKey, url, width, height }` → 콜라보 `PATCH cover.storageKey` 또는 작품 `PATCH image.storageKey`로 연결 |

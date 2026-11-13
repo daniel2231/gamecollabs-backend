@@ -42,3 +42,16 @@ export const MAX_FOLLOWS = 200;
 /** Feed of followed properties and companies: newest published first. */
 export const FeedQuery = BookmarkListQuery;
 export type FeedQuery = z.infer<typeof FeedQuery>;
+
+/** Admin member list: newest first, searchable by Discord name or id. */
+export const AdminMemberListQuery = z.object({
+  q: z.string().trim().min(1).max(64).optional(),
+  status: z.enum(["all", "active", "disabled"]).default("all"),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type AdminMemberListQuery = z.infer<typeof AdminMemberListQuery>;
+
+/** Block (`active: false`) or unblock a member. */
+export const AdminMemberPatch = z.object({ active: z.boolean() });
+export type AdminMemberPatch = z.infer<typeof AdminMemberPatch>;
