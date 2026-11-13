@@ -23,6 +23,8 @@ export const SCOPES = [
   "changelog:write",
   /** Create or refresh a member after a Discord login (Next.js server only). */
   "members:write",
+  /** List, block and delete members (admin only: personal data). */
+  "members:manage",
 ] as const;
 export type Scope = (typeof SCOPES)[number];
 
