@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import { config } from "../config.js";
 import { Collab } from "../models/collab.js";
 import { Company, Property } from "../models/entities.js";
+import { Submission } from "../models/support.js";
 import { notify, revalidate } from "../lib/outbound.js";
 import { checkUrl, isReachable } from "../lib/safeFetch.js";
 import { mirrorCover } from "../services/media.js";
@@ -138,6 +139,20 @@ export async function mirrorCovers(limit = 50) {
   const counts = { mirrored: 0, skipped: 0, failed: 0 };
   for (const doc of docs) counts[await mirrorCover(doc)]++;
   return counts;
+}
+
+/** How long a submission keeps the hash of the visitor's IP. Stated in the web's privacy policy: change both together. */
+export const IP_HASH_RETENTION_DAYS = 90;
+
+/** Clears `ipHash` on submissions older than the retention period; the submission itself stays as the source record. */
+export async function purgeIpHashes(now = new Date(), days = IP_HASH_RETENTION_DAYS) {
+  const cutoff = new Date(now.getTime() - days * 86_400_000);
+  const { modifiedCount } = await Submission.updateMany(
+    { createdAt: { $lt: cutoff }, ipHash: { $ne: null } },
+    { $set: { ipHash: null } },
+    { timestamps: false },
+  );
+  return { cleared: modifiedCount };
 }
 
 /** Portable JSON dump (MongoDB Extended JSON), one file per collection, for the weekly Git export. */

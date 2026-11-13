@@ -196,10 +196,13 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | `phase-rollover` | 매일 09:02 | 날짜(UTC 자정)로 단계가 바뀐 공개 콜라보의 웹 캐시 갱신(`collab:`·`property:`·`company:` 태그) |
 | `mirror-covers` | 매시 15분 | 커버 이미지를 R2로 복사 (F-09) |
 | `cleanup-uploads` | 일 05:30 | 어느 콜라보 커버나 작품 이미지도 쓰지 않는 업로드(`covers/`) 중 7일 지난 것 삭제 |
+| `purge-ip-hashes` | 매일 05:45 | 90일 지난 제보의 `ipHash`를 비움(제보는 남김). 웹 개인정보 처리방침에 적힌 기간이라 바꾸면 함께 고친다 |
 | `export-json` | 일 05:00 | 컬렉션별 Extended JSON 덤프 (`EXPORT_DIR`, Git 커밋용) |
 | `discover-openai` | 매일 09:05 | 대체 수집 경로 (키가 있을 때만) |
 
 일일 `mongodump`는 `backup` 컨테이너가 R2 `backups` 버킷에 올리고 30일 보관합니다 (`deploy/backup/backup.sh once`로 즉시 실행).
+
+접속 기록에는 방문자 IP(`X-Client-IP`)와 인증·쿠키 헤더를 남기지 않습니다(`logger.ts`의 redact). 컨테이너 로그는 서비스마다 10MB × 3개까지만 두고 오래된 것부터 지웁니다(`deploy/docker-compose.yml`의 `logging`).
 
 ## MDX 이관 (M1)
 
