@@ -2,7 +2,7 @@ import cron from "node-cron";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { withJobLock } from "./lock.js";
-import { consistency, exportJson, linkCheck, mirrorCovers, phaseRollover, recount, reindexFacets } from "./tasks.js";
+import { consistency, exportJson, linkCheck, mirrorCovers, phaseRollover, purgeIpHashes, recount, reindexFacets } from "./tasks.js";
 import { discoverWithOpenAI } from "./discover.js";
 import { cleanupUploads } from "../services/media.js";
 import { refreshFollowUps } from "../services/followUps.js";
@@ -23,6 +23,7 @@ export const JOBS: Record<string, Job> = {
   "mirror-covers": { run: () => mirrorCovers(), schedule: "15 * * * *", ttlMs: 20 * MIN },
   "export-json": { run: () => exportJson(), schedule: "0 5 * * 0", ttlMs: 10 * MIN },
   "cleanup-uploads": { run: () => cleanupUploads(), schedule: "30 5 * * 0", ttlMs: 10 * MIN },
+  "purge-ip-hashes": { run: () => purgeIpHashes(), schedule: "45 5 * * *", ttlMs: 10 * MIN },
   "discover-openai": {
     run: () => discoverWithOpenAI(),
     schedule: "5 9 * * *",

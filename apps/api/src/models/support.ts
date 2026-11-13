@@ -45,7 +45,7 @@ const submissionSchema = new Schema(
     url: { type: String, default: null },
     note: { type: String, default: null },
     locale: { type: String, default: null },
-    /** sha256(ip + secret) so abuse can be traced without storing the address. */
+    /** sha256(ip + secret) so abuse can be traced without storing the address. Cleared after 90 days (job purge-ip-hashes). */
     ipHash: { type: String, default: null },
     status: { type: String, enum: ["new", "accepted", "dismissed"], default: "new" },
     collabId: { type: Schema.Types.ObjectId, ref: "Collab", default: null },

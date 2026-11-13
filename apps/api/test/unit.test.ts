@@ -1,4 +1,7 @@
+import { Writable } from "node:stream";
+import { pino } from "pino";
 import { describe, expect, it } from "vitest";
+import { loggerOptions } from "../src/logger.js";
 import { indexTokens, nameKey, queryTokens, slugify } from "../src/lib/text.js";
 import { phaseOf, toStoredPeriod } from "../src/lib/period.js";
 import { normalizeUrl } from "../src/lib/url.js";
@@ -130,5 +133,17 @@ describe("content TBA scan", () => {
     expect(m("게이밍 기어 4종으로 구성되며 출시 일정은 추후 공개될 예정이다.")).toBeNull();
     expect(m("Four gaming gear items, with the release schedule to be announced later.")).toBeNull();
     expect(m("진격의 거인 테마 스킨과 맵이 추가된다.")).toBeNull();
+  });
+});
+
+describe("logger", () => {
+  it("drops the visitor IP and credentials from request logs", () => {
+    const lines: string[] = [];
+    const sink = new Writable({ write: (chunk, _enc, done) => (lines.push(String(chunk)), done()) });
+    const log = pino({ ...loggerOptions, level: "info" }, sink);
+    log.info({ req: { method: "POST", url: "/v1/submissions", headers: { "x-client-ip": "203.0.113.7", authorization: "Bearer t", cookie: "a=b", "user-agent": "ua" } } });
+    const entry = JSON.parse(lines[0]!);
+    expect(entry.req.headers).toEqual({ "user-agent": "ua" });
+    expect(lines[0]).not.toContain("203.0.113.7");
   });
 });

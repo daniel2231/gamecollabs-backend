@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { Collab } from "../src/models/collab.js";
 import { Property } from "../src/models/entities.js";
-import { Revision } from "../src/models/support.js";
+import { Revision, Submission } from "../src/models/support.js";
+import { purgeIpHashes } from "../src/jobs/tasks.js";
 import { SERVICE_TOKEN, adminJwt, apiToken, app, as, draftBody, seedEntities, setupDb, teardownDb } from "./helpers.js";
 
 let admin: string;
@@ -431,6 +432,22 @@ describe("submissions", () => {
     expect(res.body.meta.counts.tip).toBeGreaterThanOrEqual(1);
     expect((await visitor("10.0.0.1").post("/v1/submissions").send({ note: "no url" })).status).toBe(422);
     expect((await visitor("10.0.0.1").post("/v1/submissions").send({ ...tip, website: "spam" })).status).toBe(422);
+  });
+
+  it("stores only an IP hash and clears it after the retention period", async () => {
+    const url = "https://example.com/news/ip-hash-retention";
+    expect((await visitor("10.0.0.9").post("/v1/submissions").send({ url })).status).toBe(202);
+    const saved = await Submission.findOne({ url }).lean();
+    expect(saved?.ipHash).toMatch(/^[0-9a-f]{32}$/);
+    expect(JSON.stringify(saved)).not.toContain("10.0.0.9");
+
+    const now = new Date();
+    expect(await purgeIpHashes(now)).toEqual({ cleared: 0 });
+    // createdAt is immutable in Mongoose, so age the row through the driver
+    await Submission.collection.updateOne({ _id: saved!._id }, { $set: { createdAt: new Date(now.getTime() - 91 * 86_400_000) } });
+    expect((await purgeIpHashes(now)).cleared).toBeGreaterThanOrEqual(1);
+    const after = await Submission.findById(saved!._id).lean();
+    expect(after).toMatchObject({ url, ipHash: null });
   });
 
   it("links corrections to a published collab", async () => {
