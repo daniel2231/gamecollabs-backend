@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { loggerOptions } from "../src/logger.js";
 import { indexTokens, nameKey, queryTokens, slugify } from "../src/lib/text.js";
 import { phaseOf, toStoredPeriod } from "../src/lib/period.js";
+import { followUpReasonOf } from "../src/lib/followUp.js";
 import { normalizeUrl } from "../src/lib/url.js";
 import { isPrivateAddress } from "../src/lib/safeFetch.js";
 import { TaxonomyIndex, type Term } from "../src/services/taxonomy.js";
@@ -53,6 +54,43 @@ describe("period and phase", () => {
 
   it("rejects impossible dates", () => {
     expect(() => toStoredPeriod({ start: "2026-02-30" })).toThrow();
+  });
+});
+
+describe("conditional ends", () => {
+  const now = new Date("2026-11-18T00:00:00Z");
+
+  it("uses the expected end when a source gives one", () => {
+    const p = toStoredPeriod({ start: "2026-11-06", endKind: "conditional", endCondition: "tied_event", expectedEnd: "2026-12" });
+    expect(p.end).toBeNull();
+    expect(p.until?.toISOString()).toBe("2027-01-01T00:00:00.000Z");
+    expect(phaseOf(p, now)).toBe("ongoing");
+    expect(phaseOf(p, new Date("2027-01-02T00:00:00Z"))).toBe("ended");
+  });
+
+  it("falls back to 60 days after the start for display, without storing an end", () => {
+    const p = toStoredPeriod({ start: "2026-11-04", endKind: "conditional", endCondition: "sold_out" });
+    expect(p.end).toBeNull();
+    expect(p.until?.toISOString()).toBe("2027-01-03T00:00:00.000Z");
+    expect(phaseOf(p, now)).toBe("ongoing");
+    expect(phaseOf(p, new Date("2027-01-03T00:00:00Z"))).toBe("ended");
+    expect(phaseOf(toStoredPeriod({ endKind: "conditional", endCondition: "sold_out" }), now)).toBe("unknown");
+  });
+
+  it("drops condition fields from other end kinds", () => {
+    const p = toStoredPeriod({ start: "2026-11-04", endKind: "tba", endCondition: "sold_out", expectedEnd: "2026-12" });
+    expect(p).toMatchObject({ endCondition: null, expectedEnd: null, until: null });
+  });
+
+  it("re-checks only conditions tied to another event", () => {
+    const status = "published";
+    const tied = toStoredPeriod({ start: "2026-11-06", endKind: "conditional", endCondition: "tied_event" });
+    const soldOut = toStoredPeriod({ start: "2026-11-04", endKind: "conditional", endCondition: "sold_out" });
+    expect(followUpReasonOf({ status, period: tied }, now)).toBe("end_tied");
+    expect(followUpReasonOf({ status, period: soldOut }, now)).toBeNull();
+    expect(followUpReasonOf({ status, period: soldOut, contentTba: true }, now)).toBe("content_tba");
+    // once the estimated end has passed, nothing is re-checked
+    expect(followUpReasonOf({ status, period: tied }, new Date("2027-02-01T00:00:00Z"))).toBeNull();
   });
 });
 

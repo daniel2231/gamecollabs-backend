@@ -26,8 +26,31 @@ export const SourceType = z.enum(SOURCE_TYPES);
 
 export const PRECISIONS = ["day", "month", "unknown"] as const;
 export const Precision = z.enum(PRECISIONS);
-export const END_KINDS = ["fixed", "permanent", "tba"] as const;
+/**
+ * - `fixed`: an end date is announced.
+ * - `permanent`: the content stays (store items, unlocked stickers, map additions).
+ * - `tba`: the end has not been announced yet and is expected to be (re-checked).
+ * - `conditional`: the collab ends on a condition rather than a date (see `END_CONDITIONS`).
+ */
+export const END_KINDS = ["fixed", "permanent", "tba", "conditional"] as const;
 export const EndKind = z.enum(END_KINDS);
+export type EndKind = z.infer<typeof EndKind>;
+
+/**
+ * Why a `conditional` collab has no end date:
+ * - `sold_out`: sold while stocks last, shop by shop ("なくなり次第終了");
+ * - `tied_event`: ends with another event whose date is not out yet ("until the next pack's maintenance");
+ * - `other`: any other stated condition (describe it in `endNote`).
+ */
+export const END_CONDITIONS = ["sold_out", "tied_event", "other"] as const;
+export const EndCondition = z.enum(END_CONDITIONS);
+export type EndCondition = z.infer<typeof EndCondition>;
+
+/**
+ * A `conditional` collab without an `expectedEnd` is shown as ongoing for this many days after its
+ * start, then as ended. This is a display rule, not a date stored as the collab's end.
+ */
+export const CONDITIONAL_DEFAULT_DAYS = 60;
 
 export const ORIGIN_TYPES = ["manual", "gpt", "agent", "migration"] as const;
 
@@ -75,12 +98,33 @@ export const PeriodInput = z
     /** Derived from the date format when omitted. */
     precision: Precision.optional(),
     endKind: EndKind.default("fixed"),
+    /** Required with `endKind: "conditional"`, not allowed otherwise. */
+    endCondition: EndCondition.nullish(),
+    /** The condition as the source states it, e.g. "제11탄 업데이트 점검까지" / "Until the 11th pack's maintenance". */
+    endNote: Bilingual(200).nullish(),
+    /**
+     * Only for `conditional`, and only when a source gives an approximate end ("late December" → `YYYY-MM`).
+     * Never a guess: leave it out when nothing is stated.
+     */
+    expectedEnd: IsoDateOrMonth.nullish(),
   })
   .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
   .refine((p) => !(p.start && p.end && p.end < p.start), { message: "end is before start", path: ["end"] })
   .refine((p) => !(p.endKind !== "fixed" && p.end), {
-    message: "permanent/tba periods have no end date",
+    message: "permanent/tba/conditional periods have no end date",
     path: ["end"],
+  })
+  .refine((p) => p.endKind !== "conditional" || !!p.endCondition, {
+    message: "conditional periods need endCondition",
+    path: ["endCondition"],
+  })
+  .refine((p) => p.endKind === "conditional" || (!p.endCondition && !p.endNote && !p.expectedEnd), {
+    message: "endCondition, endNote and expectedEnd are only for conditional periods",
+    path: ["endKind"],
+  })
+  .refine((p) => !(p.start && p.expectedEnd && p.expectedEnd.slice(0, 7) < p.start.slice(0, 7)), {
+    message: "expectedEnd is before start",
+    path: ["expectedEnd"],
   });
 export type PeriodInput = z.infer<typeof PeriodInput>;
 

@@ -172,7 +172,7 @@ export type AdminCollab = {
   rev: number;
   i18n: { ko: { title: string }; en: { title: string } };
   parties: { propertyId: string | null; slug: string | null; role: string; name: { ko: string | null; en: string | null } | null }[];
-  period: { start: string | null; end: string | null; endKind: string };
+  period: { start: string | null; end: string | null; endKind: string; endCondition?: string | null };
   sources: { url: string }[];
   origin: { type: string; runId: string | null };
   duplicateCount?: number;
