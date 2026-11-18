@@ -392,3 +392,24 @@ describe("admin endpoint", () => {
     expect((await request(plain).post("/mcp/admin").send({})).status).toBe(404);
   });
 });
+
+describe("end_unannounced audit", () => {
+  it("matches notes saying the end was not announced, in English and Korean", async () => {
+    const { notesSayEndUnannounced } = await import("../src/tools.js");
+    for (const notes of [
+      "Start date is November 4 Pacific Time; no end date announced.",
+      "No fixed overall end date stated.",
+      "Officially confirmed start November 4; event end not confirmed by primary announcement.",
+      "October 30 to November 30 is the waiting login bonus period. No end date set.",
+      "No confirmed end date.",
+      "End date not announced.",
+      "종료일은 아직 발표되지 않았다.",
+      "전체 캠페인 종료일은 별도 확인되지 않았다.",
+    ]) {
+      expect(notesSayEndUnannounced(notes), notes).toBe(true);
+    }
+    for (const notes of [null, "", "Offline pop-up start and end are Nov 13-25.", "Mobile app, distinct from the console title.", "종료일 12월 3일 확인."]) {
+      expect(notesSayEndUnannounced(notes), String(notes)).toBe(false);
+    }
+  });
+});

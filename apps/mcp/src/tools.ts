@@ -133,6 +133,21 @@ function detailRow(c: AdminCollab) {
   };
 }
 
+/**
+ * True when the creation notes say the end was not announced. Used to find collabs whose `end` was
+ * filled anyway (an estimate, or the date of only part of the collab).
+ */
+const END_UNANNOUNCED = [
+  /\bno (?:[\w-]+ ){0,3}end(?: date)?\b/i,
+  /\bend(?: date)? (?:was |is |has )?(?:not |un)(?:yet )?(?:announced|confirmed|stated|specified|set|published|disclosed)\b/i,
+  /\bwithout (?:an? )?end date\b/i,
+  /\bend date (?:is )?(?:unknown|tba|tbd)\b/i,
+  /종료(?:일|\s?시점)?[^.。\n]{0,20}(?:미발표|미정|미확인|미공개|확인되지 않|발표되지 않|공개되지 않|확정되지 않)/,
+];
+export function notesSayEndUnannounced(notes: string | null | undefined): boolean {
+  return !!notes && END_UNANNOUNCED.some((re) => re.test(notes));
+}
+
 /** Builds a fresh MCP server (stateless transport: one per request). `admin` adds the editing tools. */
 export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}): McpServer {
   const admin = !!opts.admin && api.hasAdmin;
@@ -299,11 +314,40 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
             "Add the fields an audit checks: category, regions, platforms, collabTypes, companies with roles, ko and en names of each party, contentTba, sourceTypes (* marks the primary source), venue count and whether a cover is set. Summaries are not included; use get_collab for those.",
           ),
         limit: z.number().int().min(1).max(100).default(50),
+        audit: z
+          .enum(["end_unannounced"])
+          .optional()
+          .describe(
+            'Scan every page server-side and return only the collabs that match: "end_unannounced" = endKind fixed with an end date, but the creation notes (origin.notes) say the end was not announced. Rows include the notes. cursor and limit are ignored.',
+          ),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args, ctx) =>
       logged("list_collabs", args, ctx, async () => {
+        if (args.audit === "end_unannounced") {
+          const matches: unknown[] = [];
+          let cursor: string | undefined;
+          let scanned = 0;
+          do {
+            const page = await api.listCollabs({
+              status: (args.status ?? ["draft", "in_review"]).join(","),
+              origin: args.origin?.join(","),
+              q: args.query,
+              from: args.from,
+              to: args.to,
+              cursor,
+              limit: 100,
+            });
+            scanned += page.items.length;
+            for (const c of page.items) {
+              const notes = (c.origin as { notes?: string | null }).notes ?? null;
+              if (c.period?.endKind === "fixed" && c.period.end && notesSayEndUnannounced(notes)) matches.push({ ...row(c), notes });
+            }
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor);
+          return json({ audit: args.audit, scanned, matched: matches.length, items: matches });
+        }
         const page = await api.listCollabs({
           status: (args.status ?? ["draft", "in_review"]).join(","),
           origin: args.origin?.join(","),
