@@ -101,6 +101,32 @@ function row(c: AdminCollab) {
   };
 }
 
+type CompanyRef = { slug?: string | null; role?: string; name?: { ko?: string | null; en?: string | null } | null };
+type SourceRef = { type?: string; isPrimary?: boolean };
+
+/**
+ * Row plus the fields an audit checks without opening each collab: classification, companies and
+ * their roles, both names of every party, source types and whether content is still TBA.
+ * Summaries are left out to keep a full page small; open those with get_collab.
+ */
+function detailRow(c: AdminCollab) {
+  const companies = (c.companies as CompanyRef[] | undefined) ?? [];
+  const sources = (c.sources as SourceRef[] | undefined) ?? [];
+  return {
+    ...row(c),
+    parties: c.parties?.map((p) => ({ role: p.role, slug: p.slug, linked: !!p.propertyId, name: { ko: p.name?.ko ?? null, en: p.name?.en ?? null } })),
+    category: (c.category as string | null | undefined) ?? null,
+    regions: (c.regions as string[] | undefined) ?? [],
+    platforms: (c.platforms as string[] | undefined) ?? [],
+    collabTypes: (c.collabTypes as string[] | undefined) ?? [],
+    companies: companies.map((co) => ({ slug: co.slug ?? null, role: co.role ?? null, name: co.name?.en ?? co.name?.ko ?? null })),
+    contentTba: !!c.contentTba,
+    sourceTypes: sources.map((s) => (s.isPrimary ? `${s.type ?? "press"}*` : (s.type ?? "press"))),
+    venues: Array.isArray(c.venues) ? c.venues.length : 0,
+    hasCover: !!c.cover,
+  };
+}
+
 /** Builds a fresh MCP server (stateless transport: one per request). `admin` adds the editing tools. */
 export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}): McpServer {
   const admin = !!opts.admin && api.hasAdmin;
@@ -259,6 +285,12 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
         from: IsoDate.optional().describe("Earliest start date, YYYY-MM-DD"),
         to: IsoDate.optional().describe("Latest start date, YYYY-MM-DD"),
         cursor: z.string().max(200).optional().describe("nextCursor from the previous page"),
+        detail: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Add the fields an audit checks: category, regions, platforms, collabTypes, companies with roles, ko and en names of each party, contentTba, sourceTypes (* marks the primary source), venue count and whether a cover is set. Summaries are not included; use get_collab for those.",
+          ),
         limit: z.number().int().min(1).max(100).default(50),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -274,7 +306,8 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
           cursor: args.cursor,
           limit: args.limit,
         });
-        return json({ items: page.items.map(row), nextCursor: page.nextCursor, counts: page.counts });
+        const items = args.detail ? page.items.map(detailRow) : page.items.map(row);
+        return json({ items, nextCursor: page.nextCursor, counts: page.counts });
       }),
   );
 
