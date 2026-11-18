@@ -152,7 +152,7 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 
 - `endNote` (`{ko, en}`, 선택): 출처가 말하는 조건 그대로. 공개 API에서 요청 언어로 나갑니다.
 - `expectedEnd` (`YYYY-MM` 또는 `YYYY-MM-DD`, 선택): 출처가 대략적인 시기를 줄 때만. 추측으로 넣지 않습니다.
-- 진행 상태(`phase`): `expectedEnd`가 있으면 그 시점까지, 없으면 시작 후 `CONDITIONAL_DEFAULT_DAYS`(60일)까지 진행 중으로, 그 뒤로는 종료로 계산합니다. 이 값은 `period.until`에만 쓰이고 종료일로 저장되지 않습니다. 공개 API의 `period.endEstimated: true`로 추정임을 표시합니다.
+- 진행 상태(`phase`): `expectedEnd`가 있으면 그 시점까지, 없으면 시작 후 `CONDITIONAL_DEFAULT_DAYS`(60일)까지 진행 중으로, 그 뒤로는 종료로 계산합니다. 이 값은 `period.until`에만 쓰이고 종료일로 저장되지 않습니다. 공개 API는 `conditional`일 때만 `period`에 `endCondition`, `endNote`(요청 언어), `expectedEnd`, `endEstimated: true`를 더 내보냅니다. 다른 종료 형태의 `period`는 기존 네 필드 그대로입니다.
 - 일부 기간만 끝나는 날짜(조기 할인 마감, 특정 가챠 종료)는 콜라보 종료일이 아닙니다.
 - 수집 후보(`submit_collab_candidates`)는 `conditional`을 받지 않습니다. 관리자 수정(`update_collab`)과 재확인 보고(`report_followup`)에서만 씁니다.
 

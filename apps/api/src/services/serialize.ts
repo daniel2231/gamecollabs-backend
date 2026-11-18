@@ -26,18 +26,24 @@ function localizedText(doc: LeanCollab, locale: Locale) {
 function period(doc: LeanCollab, locale: Locale) {
   const p = doc.period;
   const precision = (p?.precision ?? "unknown") as Precision;
-  const conditional = p?.endKind === "conditional";
   return {
     start: formatDate(p?.start, precision),
     end: formatDate(p?.end, precision),
     precision,
     endKind: p?.endKind ?? "fixed",
-    /** `conditional` only: sold_out | tied_event | other, the condition text, and an approximate end from a source. */
-    endCondition: conditional ? (p?.endCondition ?? null) : null,
-    endNote: conditional ? pick(p?.endNote, locale) : null,
-    expectedEnd: conditional ? formatDate(p?.expectedEnd, (p?.expectedPrecision ?? "day") as Precision) : null,
-    /** True when the phase after `start` comes from an estimate (conditional end), not an announced date. */
-    endEstimated: conditional,
+    /**
+     * `conditional` only (other end kinds keep the four fields above): sold_out | tied_event | other,
+     * the condition text, an approximate end from a source, and `endEstimated: true` because the phase
+     * after `start` comes from an estimate rather than an announced date.
+     */
+    ...(p?.endKind === "conditional"
+      ? {
+          endCondition: p.endCondition ?? null,
+          endNote: pick(p.endNote, locale),
+          expectedEnd: formatDate(p.expectedEnd, (p.expectedPrecision ?? "day") as Precision),
+          endEstimated: true,
+        }
+      : {}),
   };
 }
 
