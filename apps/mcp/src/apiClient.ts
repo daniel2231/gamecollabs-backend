@@ -174,7 +174,7 @@ export type AdminCollab = {
   parties: { propertyId: string | null; slug: string | null; role: string; name: { ko: string | null; en: string | null } | null }[];
   period: { start: string | null; end: string | null; endKind: string; endCondition?: string | null };
   sources: { url: string }[];
-  origin: { type: string; runId: string | null };
+  origin: { type: string; runId: string | null; notes?: string | null };
   duplicateCount?: number;
   updatedAt: string;
 } & Record<string, unknown>;

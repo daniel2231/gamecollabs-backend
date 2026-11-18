@@ -127,6 +127,10 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 - 대체 경로: `OPENAI_API_KEY`와 `OPENAI_MODEL`을 설정하면 `discover-openai` 작업이 매일 09:05 KST에 Responses API(`web_search` + JSON 스키마)를 호출해 같은 `ingestCandidates`로 넣습니다. 월 예산은 `OPENAI_MONTHLY_BUDGET_USD`로 제한합니다.
 - ChatGPT 커넥터 등록: GitHub OAuth 앱의 콜백을 `https://mcp.<도메인>/oauth/github/callback`으로 만들고, ChatGPT에 `https://mcp.<도메인>/mcp`를 추가합니다. 등록된 클라이언트는 `DATA_DIR/oauth-clients.json`에 남습니다.
 
+### 감사 필터 (MCP `list_collabs`)
+
+`list_collabs`에 `audit: "end_unannounced"`를 주면 모든 페이지를 서버에서 훑어, 종료일이 확정(`endKind: "fixed"`)으로 들어 있는데 등록 메모(`origin.notes`)에는 "종료일 미발표"라고 적힌 콜라보만 메모와 함께 돌려줍니다. 추정치나 일부 기간의 날짜를 종료일로 넣은 경우를 찾는 용도입니다. 이때 `cursor`와 `limit`은 무시됩니다.
+
 ### 후속 확인 (날짜 미정 콜라보)
 
 발표만 되고 날짜가 "coming soon"인 콜라보, 월만 알려진 콜라보, 종료일이 발표되지 않은 콜라보, 콜라보 내용(아이템·스킨·이벤트 등)이 발표되지 않은 콜라보(`contentTba: true`)는 저장할 때 `followUp.reason`이 붙어 재확인 대상이 됩니다.
