@@ -329,6 +329,10 @@ describe("admin endpoint", () => {
       venues: 0,
       hasCover: false,
     });
+    const asString = JSON.parse((await call("list_collabs", { detail: "true" })).content[0]!.text).items[0];
+    expect(asString).toHaveProperty("companies");
+    const off = JSON.parse((await call("list_collabs", { detail: "false" })).content[0]!.text).items[0];
+    expect(off).not.toHaveProperty("companies");
 
     const upd = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "2026-10-20", endKind: "tba" } } });
     expect(upd.isError).toBeFalsy();

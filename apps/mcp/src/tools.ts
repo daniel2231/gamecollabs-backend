@@ -285,8 +285,9 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
         from: IsoDate.optional().describe("Earliest start date, YYYY-MM-DD"),
         to: IsoDate.optional().describe("Latest start date, YYYY-MM-DD"),
         cursor: z.string().max(200).optional().describe("nextCursor from the previous page"),
+        // Clients holding an older copy of this schema send unknown arguments as strings.
         detail: z
-          .boolean()
+          .union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")])
           .default(false)
           .describe(
             "Add the fields an audit checks: category, regions, platforms, collabTypes, companies with roles, ko and en names of each party, contentTba, sourceTypes (* marks the primary source), venue count and whether a cover is set. Summaries are not included; use get_collab for those.",
