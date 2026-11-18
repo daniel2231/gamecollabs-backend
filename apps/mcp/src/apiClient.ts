@@ -18,7 +18,12 @@ export class ApiClient {
     return !!this.cfg.ADMIN_API_KEY;
   }
 
-  private async call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown, opts: { admin?: boolean; headers?: Record<string, string> } = {}): Promise<T> {
+  private async request<T, M = unknown>(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    body?: unknown,
+    opts: { admin?: boolean; headers?: Record<string, string> } = {},
+  ): Promise<{ data: T; meta?: M }> {
     const key = opts.admin ? this.cfg.ADMIN_API_KEY : this.cfg.INTERNAL_API_KEY;
     if (!key) throw new Error("admin tools are not configured (ADMIN_API_KEY)");
     const res = await fetch(new URL(path, this.cfg.API_URL), {
@@ -27,9 +32,13 @@ export class ApiClient {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(120_000),
     });
-    const json = (await res.json().catch(() => null)) as { data?: T } | null;
+    const json = (await res.json().catch(() => null)) as { data?: T; meta?: M } | null;
     if (!res.ok) throw new ApiError(res.status, json);
-    return json!.data as T;
+    return { data: json!.data as T, meta: json!.meta };
+  }
+
+  private async call<T>(method: "GET" | "POST" | "PATCH", path: string, body?: unknown, opts: { admin?: boolean; headers?: Record<string, string> } = {}): Promise<T> {
+    return (await this.request<T>(method, path, body, opts)).data;
   }
 
   /* -------- admin (ADMIN_API_KEY) -------- */
@@ -38,9 +47,16 @@ export class ApiClient {
     return this.call<T>(method, path, body, { admin: true, headers });
   }
 
-  listCollabs(params: Record<string, string | number | undefined>) {
+  /** One page of collabs, newest change first; pass `nextCursor` back as `cursor` for the next page. */
+  async listCollabs(params: Record<string, string | number | undefined>) {
     const qs = new URLSearchParams(Object.entries(params).flatMap(([k, v]): [string, string][] => (v === undefined || v === "" ? [] : [[k, String(v)]])));
-    return this.admin<AdminCollab[]>("GET", `/v1/admin/collabs?${qs}`);
+    const { data, meta } = await this.request<AdminCollab[], { nextCursor?: string | null; counts?: Record<string, number> }>(
+      "GET",
+      `/v1/admin/collabs?${qs}`,
+      undefined,
+      { admin: true },
+    );
+    return { items: data, nextCursor: meta?.nextCursor ?? null, counts: meta?.counts ?? null };
   }
 
   getCollab(idOrSlug: string) {

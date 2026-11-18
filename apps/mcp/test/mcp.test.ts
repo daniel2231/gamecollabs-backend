@@ -35,7 +35,12 @@ beforeAll(async () => {
     res.json({ data: [{ type: "property", slug: "attack-on-titan", exact: true }] });
   });
   const doc = { id: "6ac8ddb4baf0384ec4d7163c", slug: "a-b-2026-10", status: "draft", rev: 3, i18n: { ko: { title: "가" }, en: { title: "A" } }, parties: [], period: { start: null, end: null, endKind: "tba" }, sources: [{ url: "https://x.example" }], origin: { type: "gpt", runId: "r" }, updatedAt: "2026-10-11T00:00:00.000Z" };
-  api.get("/v1/admin/collabs", (_req, res) => res.json({ data: [doc] }));
+  api.get("/v1/admin/collabs", (req, res) =>
+    res.json({
+      data: [doc],
+      meta: { nextCursor: req.query.cursor ? null : "next-page", counts: { draft: 1, in_review: 0, published: 0, archived: 0 } },
+    }),
+  );
   api.get("/v1/admin/collabs/:id", (_req, res) => res.json({ data: doc }));
   api.get("/v1/admin/collabs/:id/duplicates", (_req, res) => res.json({ data: [] }));
   api.patch("/v1/admin/collabs/:id", (req, res) => res.json({ data: { ...doc, ...req.body, rev: Number(req.get("if-match")) + 1 } }));
@@ -286,11 +291,19 @@ describe("admin endpoint", () => {
   });
 
   it("calls the admin API with the admin key, defaulting the review queue and sending If-Match", async () => {
-    const list = await call("list_collabs", {});
-    expect(JSON.parse(list.content[0]!.text)[0]).toMatchObject({ slug: "a-b-2026-10", rev: 3, origin: "gpt" });
+    const list = JSON.parse((await call("list_collabs", {})).content[0]!.text);
+    expect(list.items[0]).toMatchObject({ slug: "a-b-2026-10", rev: 3, origin: "gpt" });
+    expect(list).toMatchObject({ nextCursor: "next-page", counts: { draft: 1, published: 0 } });
     const listCall = received.filter((r) => r.path.startsWith("/v1/admin/collabs?")).at(-1)!;
     expect(listCall.auth).toBe(`Bearer ${ADMIN_KEY}`);
     expect(listCall.path).toContain("status=draft%2Cin_review");
+
+    const next = JSON.parse((await call("list_collabs", { status: ["published"], cursor: list.nextCursor, from: "2026-11-01" })).content[0]!.text);
+    expect(next.nextCursor).toBeNull();
+    const nextCall = received.filter((r) => r.path.startsWith("/v1/admin/collabs?")).at(-1)!;
+    expect(nextCall.path).toContain("cursor=next-page");
+    expect(nextCall.path).toContain("from=2026-11-01");
+    expect(nextCall.path).toContain("status=published");
 
     const upd = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "2026-10-20", endKind: "tba" } } });
     expect(upd.isError).toBeFalsy();

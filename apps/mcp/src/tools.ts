@@ -250,24 +250,31 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     "list_collabs",
     {
       title: "List collabs (admin)",
-      description: "Lists collabs of any status, newest change first: drafts waiting for review, published ones, etc. Returns compact rows (id, slug, status, rev, titles, dates, parties, duplicate count).",
+      description:
+        "Lists collabs of any status, newest change first: drafts waiting for review, published ones, etc. Returns { items, nextCursor, counts }: compact rows (id, slug, status, rev, titles, dates, parties, duplicate count), the cursor for the next page (null on the last page) and the number of collabs per status. To go through every collab, call again with cursor: nextCursor until it is null; pages follow the last change, so an edit made while paging moves that collab to the front.",
       inputSchema: {
         status: z.array(z.enum(COLLAB_STATUSES)).optional().describe("Default: draft and in_review"),
         origin: z.array(z.enum(ORIGIN_TYPES)).optional(),
         query: z.string().trim().max(100).optional().describe("Search in titles and names"),
+        from: IsoDate.optional().describe("Earliest start date, YYYY-MM-DD"),
+        to: IsoDate.optional().describe("Latest start date, YYYY-MM-DD"),
+        cursor: z.string().max(200).optional().describe("nextCursor from the previous page"),
         limit: z.number().int().min(1).max(100).default(50),
       },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (args, ctx) =>
       logged("list_collabs", args, ctx, async () => {
-        const rows = await api.listCollabs({
+        const page = await api.listCollabs({
           status: (args.status ?? ["draft", "in_review"]).join(","),
           origin: args.origin?.join(","),
           q: args.query,
+          from: args.from,
+          to: args.to,
+          cursor: args.cursor,
           limit: args.limit,
         });
-        return json(rows.map(row));
+        return json({ items: page.items.map(row), nextCursor: page.nextCursor, counts: page.counts });
       }),
   );
 
