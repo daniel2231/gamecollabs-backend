@@ -35,9 +35,18 @@ beforeAll(async () => {
     res.json({ data: [{ type: "property", slug: "attack-on-titan", exact: true }] });
   });
   const doc = { id: "6ac8ddb4baf0384ec4d7163c", slug: "a-b-2026-10", status: "draft", rev: 3, i18n: { ko: { title: "가" }, en: { title: "A" } }, parties: [], period: { start: null, end: null, endKind: "tba" }, sources: [{ url: "https://x.example" }], origin: { type: "gpt", runId: "r" }, updatedAt: "2026-10-11T00:00:00.000Z" };
+  const auditFields = {
+    parties: [{ propertyId: "f".repeat(24), slug: "x-game", role: "host", name: { ko: "엑스", en: "X" } }],
+    category: "category.in_game",
+    regions: ["region.japan"],
+    companies: [{ companyId: "c".repeat(24), slug: "sega", role: "licensor", name: { ko: "세가", en: "SEGA" } }],
+    contentTba: true,
+    sources: [{ url: "https://x.example", type: "official", isPrimary: true }, { url: "https://y.example", type: "press" }],
+    cover: null,
+  };
   api.get("/v1/admin/collabs", (req, res) =>
     res.json({
-      data: [doc],
+      data: [{ ...doc, ...auditFields }],
       meta: { nextCursor: req.query.cursor ? null : "next-page", counts: { draft: 1, in_review: 0, published: 0, archived: 0 } },
     }),
   );
@@ -304,6 +313,22 @@ describe("admin endpoint", () => {
     expect(nextCall.path).toContain("cursor=next-page");
     expect(nextCall.path).toContain("from=2026-11-01");
     expect(nextCall.path).toContain("status=published");
+    expect(list.items[0]).not.toHaveProperty("companies");
+
+    const detailed = JSON.parse((await call("list_collabs", { detail: true })).content[0]!.text).items[0];
+    expect(detailed).toMatchObject({
+      slug: "a-b-2026-10",
+      parties: [{ role: "host", slug: "x-game", linked: true, name: { ko: "엑스", en: "X" } }],
+      category: "category.in_game",
+      regions: ["region.japan"],
+      platforms: [],
+      collabTypes: [],
+      companies: [{ slug: "sega", role: "licensor", name: "SEGA" }],
+      contentTba: true,
+      sourceTypes: ["official*", "press"],
+      venues: 0,
+      hasCover: false,
+    });
 
     const upd = await call("update_collab", { id_or_slug: "a-b-2026-10", rev: 3, patch: { period: { start: "2026-10-20", endKind: "tba" } } });
     expect(upd.isError).toBeFalsy();
