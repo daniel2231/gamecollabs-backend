@@ -9,7 +9,7 @@ export const CHECK_INTERVAL_DAYS = [3, 7, 14, 30] as const;
 /** After this many checks in a row without news, an admin is asked to decide (once). */
 export const ESCALATE_AFTER = 5;
 
-type PeriodLike = Pick<StoredPeriod, "start" | "end" | "until" | "precision" | "endKind">;
+type PeriodLike = Pick<StoredPeriod, "start" | "end" | "until" | "precision" | "endKind" | "endCondition">;
 
 /**
  * `null` when the collab needs no further checks (complete, ended or archived). Missing dates come
@@ -29,6 +29,8 @@ export function followUpReasonOf(
   }
   if (!p.end) {
     if (p.endKind === "tba") return "end_tba";
+    // Stock-limited and other conditional ends are never announced as dates: only an event date can come out.
+    if (p.endKind === "conditional" && p.endCondition === "tied_event") return "end_tied";
     if (p.endKind === "fixed") return "end_missing";
   }
   if (c.contentTba) return "content_tba";

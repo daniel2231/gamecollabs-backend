@@ -137,7 +137,24 @@ ChatGPT 예약 작업 → mcp.<도메인>/mcp (OAuth 2.1, GitHub 계정 1개만 
 | `month_only` | 시작일이 월 단위 (그 달이 끝날 때까지) | 정확한 시작일 |
 | `end_tba` | 종료일 없음, `endKind: "tba"` | 종료일 또는 상시(`permanent`) 여부 |
 | `end_missing` | 종료일 없음, `endKind: "fixed"` | 종료일 (데이터 누락) |
+| `end_tied` | `endKind: "conditional"`, `endCondition: "tied_event"` | 종료 기준이 되는 일정(예: 다음 업데이트 점검일) |
 | `content_tba` | 날짜는 다 있음, `contentTba: true` | 콜라보 내용 |
+
+#### 조건부 종료 (`endKind: "conditional"`)
+
+종료일 대신 조건으로 끝나는 콜라보에 씁니다. 종료일(`end`)은 넣지 않습니다.
+
+| `endCondition` | 예 | 재확인 |
+| --- | --- | --- |
+| `sold_out` | 매장별 재고 소진 시 판매 종료 ("なくなり次第終了") | 안 함 (날짜가 발표될 일이 없음) |
+| `tied_event` | "다음 팩 업데이트 점검까지"처럼 날짜 미정인 다른 일정에 종속 | `end_tied`로 재확인, 일정이 나오면 `fixed`로 변경 |
+| `other` | 그 밖의 조건 | 안 함 |
+
+- `endNote` (`{ko, en}`, 선택): 출처가 말하는 조건 그대로. 공개 API에서 요청 언어로 나갑니다.
+- `expectedEnd` (`YYYY-MM` 또는 `YYYY-MM-DD`, 선택): 출처가 대략적인 시기를 줄 때만. 추측으로 넣지 않습니다.
+- 진행 상태(`phase`): `expectedEnd`가 있으면 그 시점까지, 없으면 시작 후 `CONDITIONAL_DEFAULT_DAYS`(60일)까지 진행 중으로, 그 뒤로는 종료로 계산합니다. 이 값은 `period.until`에만 쓰이고 종료일로 저장되지 않습니다. 공개 API의 `period.endEstimated: true`로 추정임을 표시합니다.
+- 일부 기간만 끝나는 날짜(조기 할인 마감, 특정 가챠 종료)는 콜라보 종료일이 아닙니다.
+- 수집 후보(`submit_collab_candidates`)는 `conditional`을 받지 않습니다. 관리자 수정(`update_collab`)과 재확인 보고(`report_followup`)에서만 씁니다.
 
 사유는 하나만 붙고 날짜가 우선입니다. 날짜와 내용이 모두 미정이면 날짜 사유가 붙지만, `list_followups`의 각 행에 `contentTba`가 있어 확인할 때 내용도 같이 찾습니다. 내용이 발표되면 `report_followup`에 `changes.contentTba: false`와 내용을 담은 `changes.i18n`을 보냅니다. 수집 후보(`submit_collab_candidates`)와 `update_collab`에도 `contentTba`를 넣을 수 있고, 공개 API 카드에도 `contentTba`가 나갑니다.
 

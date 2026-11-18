@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { HttpUrl, IsoDateOrMonth, Slug } from "./common.js";
-import { CompanyRole, EndKind, SourceType, VenueInput } from "./collab.js";
+import { CompanyRole, SourceType, VenueInput } from "./collab.js";
 
 export const MAX_CANDIDATES_PER_CALL = 20;
 
@@ -49,7 +49,8 @@ export const IngestCandidate = z.object({
       .object({
         start: IsoDateOrMonth.nullish(),
         end: IsoDateOrMonth.nullish(),
-        endKind: EndKind.default("tba"),
+        /** `conditional` (sold while stocks last, tied to another event) is set by admins and follow-ups. */
+        endKind: z.enum(["fixed", "permanent", "tba"]).default("tba"),
       })
       .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
       .default({ endKind: "tba" }),

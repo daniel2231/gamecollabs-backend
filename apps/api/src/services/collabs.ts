@@ -250,12 +250,7 @@ export type CreateOptions = {
 /** Builds and saves a draft. Always `draft`, whoever calls it. */
 export async function createDraft(input: CollabInput, actor: Principal, opts: CreateOptions = {}) {
   const run = async (session: ClientSession) => {
-    const period = toStoredPeriod({
-      start: input.period.start,
-      end: input.period.end,
-      precision: input.period.precision,
-      endKind: input.period.endKind,
-    });
+    const period = toStoredPeriod(input.period);
     const parties = await resolveParties(input.parties, session);
     const companies = await resolveCompanies(input.companies, session);
     const slug =

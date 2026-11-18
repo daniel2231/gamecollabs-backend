@@ -23,14 +23,21 @@ function localizedText(doc: LeanCollab, locale: Locale) {
   };
 }
 
-function period(doc: LeanCollab) {
+function period(doc: LeanCollab, locale: Locale) {
   const p = doc.period;
   const precision = (p?.precision ?? "unknown") as Precision;
+  const conditional = p?.endKind === "conditional";
   return {
     start: formatDate(p?.start, precision),
     end: formatDate(p?.end, precision),
     precision,
     endKind: p?.endKind ?? "fixed",
+    /** `conditional` only: sold_out | tied_event | other, the condition text, and an approximate end from a source. */
+    endCondition: conditional ? (p?.endCondition ?? null) : null,
+    endNote: conditional ? pick(p?.endNote, locale) : null,
+    expectedEnd: conditional ? formatDate(p?.expectedEnd, (p?.expectedPrecision ?? "day") as Precision) : null,
+    /** True when the phase after `start` comes from an estimate (conditional end), not an announced date. */
+    endEstimated: conditional,
   };
 }
 
@@ -66,7 +73,7 @@ export function collabCard(doc: LeanCollab, locale: Locale, tax: TaxonomyIndex, 
     title: text.title,
     summary: text.summary,
     phase: phaseOf({ start: doc.period?.start ?? null, until: doc.period?.until ?? null, endKind: doc.period?.endKind ?? "fixed" }, now),
-    period: period(doc),
+    period: period(doc, locale),
     contentTba: !!doc.contentTba,
     category: tax.labeled(doc.category, locale),
     parties: doc.parties.map((p) => ({

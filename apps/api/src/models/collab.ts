@@ -2,6 +2,7 @@ import { Schema, model, type HydratedDocument, type InferSchemaType } from "mong
 import {
   COLLAB_STATUSES,
   COMPANY_ROLES,
+  END_CONDITIONS,
   END_KINDS,
   FOLLOW_UP_REASONS,
   ORIGIN_TYPES,
@@ -10,7 +11,7 @@ import {
   SOURCE_TYPES,
 } from "@gamecollabs/schema";
 import { indexTokens } from "../lib/text.js";
-import { untilOf } from "../lib/period.js";
+import { untilOfPeriod, type Precision } from "../lib/period.js";
 import { followUpReasonOf, followUpReset } from "../lib/followUp.js";
 import { taxonomy } from "../services/taxonomy.js";
 
@@ -99,7 +100,12 @@ const collabSchema = new Schema(
       end: { type: Date, default: null },
       precision: { type: String, enum: PRECISIONS, default: "unknown" },
       endKind: { type: String, enum: END_KINDS, default: "fixed" },
-      /** Exclusive end instant derived from end + precision; makes phase filters a range query. */
+      /** `conditional` only: why there is no end date, the condition as stated, and an approximate end if a source gives one. */
+      endCondition: { type: String, enum: [...END_CONDITIONS, null], default: null },
+      endNote: { type: new Schema({ ko: str, en: str }, { _id: false }), default: null },
+      expectedEnd: { type: Date, default: null },
+      expectedPrecision: { type: String, enum: ["day", "month", null], default: null },
+      /** Exclusive end instant (see `untilOfPeriod`); makes phase filters a range query. */
       until: { type: Date, default: null },
     },
     /** Announced without saying what it adds (items, skins, events); re-checked until cleared. */
@@ -213,7 +219,18 @@ collabSchema.pre("validate", async function () {
   ];
   this.facetKeys = terms.expand(facetSources);
   this.searchTokens = collabSearchTokens(this);
-  this.set("period.until", untilOf(this.period?.end ?? null, (this.period?.precision ?? "unknown") as "day" | "month" | "unknown"));
+  const p = this.period;
+  this.set(
+    "period.until",
+    untilOfPeriod({
+      start: p?.start ?? null,
+      end: p?.end ?? null,
+      precision: (p?.precision ?? "unknown") as Precision,
+      endKind: p?.endKind ?? "fixed",
+      expectedEnd: p?.expectedEnd ?? null,
+      expectedPrecision: (p?.expectedPrecision ?? null) as "day" | "month" | null,
+    }),
+  );
 
   const reason = followUpReasonOf({ status: this.status, period: this.period, contentTba: this.contentTba });
   if (reason !== (this.followUp?.reason ?? null)) {

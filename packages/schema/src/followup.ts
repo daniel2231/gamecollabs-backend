@@ -7,9 +7,11 @@ import { CollabI18n, PeriodInput, SourceInput } from "./collab.js";
  * - `month_only`: only the start month is known (until that month is over);
  * - `end_tba`: running or upcoming, end not announced;
  * - `end_missing`: `endKind: "fixed"` without an end date (data gap);
+ * - `end_tied`: `endKind: "conditional"` tied to another event (`endCondition: "tied_event"`) whose date is not out yet;
  * - `content_tba`: dates complete, but what the collab adds is not announced (`contentTba`).
+ * Conditional collabs that end when stocks run out (`sold_out`, `other`) are not re-checked for an end.
  */
-export const FOLLOW_UP_REASONS = ["start_tba", "month_only", "end_tba", "end_missing", "content_tba"] as const;
+export const FOLLOW_UP_REASONS = ["start_tba", "month_only", "end_tba", "end_missing", "end_tied", "content_tba"] as const;
 export const FollowUpReason = z.enum(FOLLOW_UP_REASONS);
 export type FollowUpReason = z.infer<typeof FollowUpReason>;
 

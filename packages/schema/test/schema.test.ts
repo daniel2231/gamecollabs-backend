@@ -16,6 +16,21 @@ describe("shared schemas", () => {
     expect(PeriodInput.safeParse({ start: "2026-10-01", end: "2026-10-31", endKind: "tba" }).success).toBe(false);
   });
 
+  it("validates conditional ends", () => {
+    const note = { ko: "재고 소진 시 종료", en: "While stocks last" };
+    expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional", endCondition: "sold_out", endNote: note }).success).toBe(true);
+    expect(PeriodInput.safeParse({ start: "2026-11-06", endKind: "conditional", endCondition: "tied_event", expectedEnd: "2026-12" }).success).toBe(true);
+    // a condition is required, and no end date
+    expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional" }).success).toBe(false);
+    expect(PeriodInput.safeParse({ start: "2026-11-04", end: "2026-11-30", endKind: "conditional", endCondition: "sold_out" }).success).toBe(false);
+    // condition fields only on conditional periods
+    expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "tba", endCondition: "sold_out" }).success).toBe(false);
+    expect(PeriodInput.safeParse({ start: "2026-11-04", end: "2026-11-30", expectedEnd: "2026-12" }).success).toBe(false);
+    // expected end not before start (month comparison)
+    expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional", endCondition: "other", expectedEnd: "2026-10" }).success).toBe(false);
+    expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional", endCondition: "other", expectedEnd: "2026-11" }).success).toBe(true);
+  });
+
   const i18n = { ko: { title: "게임 × IP", summary: "요약" }, en: { title: "Game x IP", summary: "Summary" } };
 
   it("requires a source and a linked or named party", () => {
@@ -48,6 +63,8 @@ describe("shared schemas", () => {
     const { period: _p, ...undated } = base;
     expect(IngestCandidate.safeParse({ ...undated, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(true);
     expect(IngestCandidate.safeParse({ ...undated, period: { end: "2026-12-31" }, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(false);
+    // Conditional ends are set by admins and follow-ups, not by submissions.
+    expect(IngestCandidate.safeParse({ ...undated, period: { start: "2026-11-04", endKind: "conditional" }, summary, title: { ko: "G × P", en: "G x P" } }).success).toBe(false);
   });
 
   it("requires a reason to reject", () => {

@@ -1,14 +1,26 @@
-import type { Phase } from "@gamecollabs/schema";
+import { CONDITIONAL_DEFAULT_DAYS, type EndCondition, type EndKind, type Phase } from "@gamecollabs/schema";
 
 export type Precision = "day" | "month" | "unknown";
-export type EndKind = "fixed" | "permanent" | "tba";
+export type { EndKind };
+
+const DAY = 86_400_000;
 
 export type StoredPeriod = {
   start: Date | null;
   end: Date | null;
   precision: Precision;
   endKind: EndKind;
-  /** Exclusive end instant, derived from `end` and `precision`. Never set by clients. */
+  /** Only for `conditional`. */
+  endCondition: EndCondition | null;
+  endNote: { ko: string; en: string } | null;
+  /** Approximate end a source gives for a `conditional` collab; `expectedPrecision` says day or month. */
+  expectedEnd: Date | null;
+  expectedPrecision: "day" | "month" | null;
+  /**
+   * Exclusive end instant used for phases. `fixed`: from `end` and `precision`. `conditional`: from
+   * `expectedEnd`, else `start` + `CONDITIONAL_DEFAULT_DAYS` (shown as ended after that; never stored as `end`).
+   * Never set by clients.
+   */
   until: Date | null;
 };
 
@@ -32,7 +44,23 @@ export function untilOf(end: Date | null, precision: Precision): Date | null {
   if (!end) return null;
   return precision === "month"
     ? new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() + 1, 1))
-    : new Date(end.getTime() + 86_400_000);
+    : new Date(end.getTime() + DAY);
+}
+
+/** `until` for any end kind (see `StoredPeriod.until`). */
+export function untilOfPeriod(p: {
+  start?: Date | null;
+  end?: Date | null;
+  precision?: Precision | null;
+  endKind?: EndKind | null;
+  expectedEnd?: Date | null;
+  expectedPrecision?: "day" | "month" | null;
+}): Date | null {
+  if (p.endKind === "conditional") {
+    if (p.expectedEnd) return untilOf(p.expectedEnd, p.expectedPrecision ?? "day");
+    return p.start ? new Date(p.start.getTime() + CONDITIONAL_DEFAULT_DAYS * DAY) : null;
+  }
+  return untilOf(p.end ?? null, p.precision ?? "unknown");
 }
 
 export function toStoredPeriod(input: {
@@ -40,13 +68,29 @@ export function toStoredPeriod(input: {
   end?: string | null;
   precision?: Precision;
   endKind?: EndKind;
+  endCondition?: EndCondition | null;
+  endNote?: { ko: string; en: string } | null;
+  expectedEnd?: string | null;
 }): StoredPeriod {
   const start = input.start ? parseDateInput(input.start) : null;
   const end = input.end ? parseDateInput(input.end) : null;
   const precision: Precision =
     input.precision ?? (!input.start ? "unknown" : input.start.length === 7 ? "month" : "day");
   const endKind = input.endKind ?? "fixed";
-  return { start, end, precision, endKind, until: untilOf(end, precision) };
+  const conditional = endKind === "conditional";
+  const expectedEnd = conditional && input.expectedEnd ? parseDateInput(input.expectedEnd) : null;
+  const expectedPrecision = expectedEnd ? (input.expectedEnd!.length === 7 ? "month" : "day") : null;
+  const period = {
+    start,
+    end,
+    precision,
+    endKind,
+    endCondition: conditional ? (input.endCondition ?? null) : null,
+    endNote: conditional ? (input.endNote ?? null) : null,
+    expectedEnd,
+    expectedPrecision,
+  } as const;
+  return { ...period, until: untilOfPeriod(period) };
 }
 
 /** `upcoming`/`ongoing`/`ended` are computed per request, never stored. */

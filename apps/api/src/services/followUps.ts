@@ -26,6 +26,13 @@ function periodOut(period: LeanFollowUp["period"] | null | undefined) {
     end: formatDate(period?.end, precision),
     precision,
     endKind: period?.endKind ?? "fixed",
+    ...(period?.endKind === "conditional"
+      ? {
+          endCondition: period.endCondition ?? null,
+          endNote: period.endNote ? { ko: period.endNote.ko ?? null, en: period.endNote.en ?? null } : null,
+          expectedEnd: formatDate(period.expectedEnd, (period.expectedPrecision ?? "day") as Precision),
+        }
+      : {}),
   };
 }
 
@@ -140,7 +147,7 @@ export async function reportFollowUp(idOrSlug: string, report: FollowUpReport, a
       ...(escalate ? { escalatedAt: now } : {}),
     });
     if (escalate) {
-      notify(`Follow-up: ${doc.slug} still has ${doc.followUp?.reason} after ${unchanged} checks; decide (set dates, endKind permanent, or archive)`, {
+      notify(`Follow-up: ${doc.slug} still has ${doc.followUp?.reason} after ${unchanged} checks; decide (set dates, endKind permanent or conditional, or archive)`, {
         slug: doc.slug,
         reason: doc.followUp?.reason,
         note: report.note ?? null,
