@@ -268,7 +268,8 @@ describe("follow-up queue", () => {
     expect(await refreshFollowUps()).toMatchObject({ changed: 1, due: 1 });
     expect((await due()).map((r) => r.slug)).toEqual([c.slug]);
     expect(await refreshFollowUps()).toMatchObject({ changed: 0, pulled: 0, due: 1 });
-    expect((await Collab.findById(ended.id).lean())!.followUp.since).toBeTruthy();
+    expect((await Collab.findById(c.id).lean())!.followUp.since).toBeTruthy();
+    expect((await Collab.findById(ended.id).lean())!.followUp?.reason ?? null).toBeNull();
   });
 
   it("moves a check earlier in the daily job when the dates call for it, never later", async () => {
