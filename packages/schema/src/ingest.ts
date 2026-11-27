@@ -51,8 +51,11 @@ export const IngestCandidate = z.object({
         end: IsoDateOrMonth.nullish(),
         /** `conditional` (sold while stocks last, tied to another event) is set by admins and follow-ups. */
         endKind: z.enum(["fixed", "permanent", "tba"]).default("tba"),
+        /** Without `start` only: first month (`YYYY-MM`) of the window a source names ("early 2027" → 2027-01). */
+        expectedStart: IsoDateOrMonth.nullish(),
       })
       .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
+      .refine((p) => !(p.start && p.expectedStart), { message: "expectedStart is only for periods without a start", path: ["expectedStart"] })
       .default({ endKind: "tba" }),
     /** True when the announcement does not say yet what the collab adds (items, skins, events). */
     contentTba: z.boolean().default(false),

@@ -1,7 +1,7 @@
 import type { FollowUpChanges, FollowUpListQuery, FollowUpReport, FollowUpResolution, SourceInput } from "@gamecollabs/schema";
 import type { Principal } from "../auth/principal.js";
 import { HttpError, notFound } from "../lib/errors.js";
-import { ESCALATE_AFTER, followUpReasonOf, followUpReset, nextCheckAt } from "../lib/followUp.js";
+import { followUpReasonOf, followUpReset, nextCheckAt, shouldEscalate } from "../lib/followUp.js";
 import { formatDate, type Precision } from "../lib/period.js";
 import { notify } from "../lib/outbound.js";
 import { Collab, type CollabDoc, type CollabFields } from "../models/collab.js";
@@ -19,6 +19,11 @@ type Applied = Proposal & { before: Shown };
 
 type LeanFollowUp = Pick<CollabFields, "slug" | "status" | "rev" | "i18n" | "parties" | "period" | "contentTba" | "sources" | "followUp"> & { _id: { toString(): string } };
 
+const FOLLOW_UP_FIELDS = { slug: 1, status: 1, rev: 1, i18n: 1, parties: 1, period: 1, contentTba: 1, sources: 1, followUp: 1 } as const;
+/** `due` order: published first, then under review, then drafts. */
+const STATUS_ORDER = ["published", "in_review", "draft"];
+const NEVER = new Date("9999-12-31T00:00:00Z");
+
 function periodOut(period: LeanFollowUp["period"] | null | undefined) {
   const precision = (period?.precision ?? "day") as Precision;
   return {
@@ -26,6 +31,9 @@ function periodOut(period: LeanFollowUp["period"] | null | undefined) {
     end: formatDate(period?.end, precision),
     precision,
     endKind: period?.endKind ?? "fixed",
+    ...(!period?.start && period?.expectedStart
+      ? { expectedStart: formatDate(period.expectedStart, (period.expectedStartPrecision ?? "day") as Precision) }
+      : {}),
     ...(period?.endKind === "conditional"
       ? {
           endCondition: period.endCondition ?? null,
@@ -66,8 +74,9 @@ function followUpRow(d: LeanFollowUp) {
 }
 
 /**
- * `due`: collabs whose next check date has passed (oldest first), skipping those with a
- * proposal waiting for an admin. `proposals` / `escalated`: what an admin has to decide.
+ * `due`: collabs whose next check date has passed, skipping those with a proposal waiting for an admin:
+ * published first, then under review, then drafts; inside each, started collabs, then the nearest start
+ * (or `expectedStart`), then those without any date, oldest check first. `proposals` / `escalated`: what an admin has to decide.
  * `applied`: drafts the collector changed that no admin has acknowledged (newest first).
  * `queued`: every collab still being re-checked, whether or not its turn has come (next check first).
  */
@@ -83,11 +92,33 @@ export async function listFollowUps(q: FollowUpListQuery, now = new Date()) {
           : q.view === "applied"
             ? [{ status: { $in: ACTIVE }, "followUp.applied": { $ne: null } }, { "followUp.applied.at": -1 }]
             : [{ ...base, "followUp.escalatedAt": { $ne: null } }, { "followUp.escalatedAt": 1 }];
-  const docs = await Collab.find(filter)
-    .sort({ ...sort, _id: 1 })
-    .limit(q.limit)
-    .select({ slug: 1, status: 1, rev: 1, i18n: 1, parties: 1, period: 1, contentTba: 1, sources: 1, followUp: 1 })
-    .lean();
+  if (q.view === "due") {
+    const start = { $ifNull: ["$period.start", null] };
+    const docs = await Collab.aggregate([
+      { $match: filter },
+      {
+        $addFields: {
+          _statusRank: { $indexOfArray: [STATUS_ORDER, "$status"] },
+          // Started collabs sort as "now", before upcoming ones; then the expected window; undated ones last.
+          _eventAt: {
+            $switch: {
+              branches: [
+                { case: { $and: [{ $ne: [start, null] }, { $gt: [start, now] }] }, then: start },
+                { case: { $ne: [start, null] }, then: now },
+                { case: { $ne: [{ $ifNull: ["$period.expectedStart", null] }, null] }, then: "$period.expectedStart" },
+              ],
+              default: NEVER,
+            },
+          },
+        },
+      },
+      { $sort: { _statusRank: 1, _eventAt: 1, "followUp.nextCheckAt": 1, _id: 1 } },
+      { $limit: q.limit },
+      { $project: FOLLOW_UP_FIELDS },
+    ]);
+    return docs.map((d) => followUpRow(d as LeanFollowUp));
+  }
+  const docs = await Collab.find(filter).sort({ ...sort, _id: 1 }).limit(q.limit).select(FOLLOW_UP_FIELDS).lean();
   return docs.map((d) => followUpRow(d as LeanFollowUp));
 }
 
@@ -122,13 +153,13 @@ async function setFollowUp(id: CollabDoc["_id"], fields: Record<string, unknown>
 /** After a change was applied: restart the schedule for whatever is still missing. */
 async function restartSchedule(id: string, now: Date, extra: Record<string, unknown> = {}) {
   const doc = await getById(id);
-  await setFollowUp(doc._id, { ...followUpReset(followUpReasonOf(doc, now), now), lastCheckedAt: now, proposal: null, ...extra });
+  await setFollowUp(doc._id, { ...followUpReset(doc, now), lastCheckedAt: now, proposal: null, ...extra });
   return getById(id);
 }
 
 /**
- * Records one re-check. `no_change` pushes the next check back (3 → 7 → 14 → 30 days) and
- * escalates once after {@link ESCALATE_AFTER} checks in a row. `updated` edits drafts directly
+ * Records one re-check. `no_change` pushes the next check back (see `nextCheckAt`: back-off limited by the
+ * collab's dates) and escalates once when `shouldEscalate` says so. `updated` edits drafts directly
  * (with rev check and revision history); anything else gets a proposal for an admin.
  */
 export async function reportFollowUp(idOrSlug: string, report: FollowUpReport, actor: Principal, now = new Date()) {
@@ -138,8 +169,10 @@ export async function reportFollowUp(idOrSlug: string, report: FollowUpReport, a
 
   if (report.outcome === "no_change") {
     const unchanged = (doc.followUp?.unchanged ?? 0) + 1;
-    const escalate = unchanged >= ESCALATE_AFTER && !doc.followUp?.escalatedAt;
-    const next = doc.followUp?.reason ? nextCheckAt(unchanged, now) : null;
+    // Collabs queued before `since` existed count from their creation.
+    const since = doc.followUp?.since ?? doc.createdAt ?? now;
+    const escalate = !doc.followUp?.escalatedAt && shouldEscalate(doc, { unchanged, since }, now);
+    const next = doc.followUp?.reason ? nextCheckAt(doc, unchanged, now) : null;
     await setFollowUp(doc._id, {
       lastCheckedAt: now,
       unchanged,
@@ -147,7 +180,7 @@ export async function reportFollowUp(idOrSlug: string, report: FollowUpReport, a
       ...(escalate ? { escalatedAt: now } : {}),
     });
     if (escalate) {
-      notify(`Follow-up: ${doc.slug} still has ${doc.followUp?.reason} after ${unchanged} checks; decide (set dates, endKind permanent or conditional, or archive)`, {
+      notify(`Follow-up: ${doc.slug} still has ${doc.followUp?.reason} after ${unchanged} checks without news; decide (set dates, endKind permanent or conditional, or archive)`, {
         slug: doc.slug,
         reason: doc.followUp?.reason,
         note: report.note ?? null,
@@ -197,7 +230,7 @@ export async function resolveFollowUp(idOrSlug: string, input: FollowUpResolutio
   const proposal = doc.followUp?.proposal as Proposal | null | undefined;
   if (!proposal) throw notFound("follow-up proposal");
   if (input.action === "dismiss") {
-    await setFollowUp(doc._id, { proposal: null, nextCheckAt: doc.followUp?.reason ? nextCheckAt(doc.followUp?.unchanged ?? 0, now) : null });
+    await setFollowUp(doc._id, { proposal: null, nextCheckAt: doc.followUp?.reason ? nextCheckAt(doc, doc.followUp?.unchanged ?? 0, now) : null });
     return getById(doc._id.toString());
   }
   await patchCollab(doc._id.toString(), patchOf(doc, proposal.changes, proposal.sources), ifMatch, actor);
@@ -207,16 +240,32 @@ export async function resolveFollowUp(idOrSlug: string, input: FollowUpResolutio
 /**
  * Daily: re-derives every reason (time moves collabs out of `month_only`, ended ones drop out)
  * and backfills collabs stored before the queue existed. New reasons are due right away.
+ * For the rest it moves the next check earlier when the dates now call for it (a period edited by an
+ * admin, an anchor coming closer, collabs scheduled by the older plain back-off); never later.
  */
 export async function refreshFollowUps(now = new Date()) {
   let changed = 0;
-  for await (const c of Collab.find().select({ status: 1, period: 1, contentTba: 1, followUp: 1 }).lean().cursor()) {
+  let pulled = 0;
+  for await (const c of Collab.find().select({ status: 1, period: 1, contentTba: 1, followUp: 1, createdAt: 1 }).lean().cursor()) {
     const reason = followUpReasonOf(c, now);
-    if (reason === (c.followUp?.reason ?? null)) continue;
-    await setFollowUp(c._id, followUpReset(reason, now, true));
-    changed++;
+    const f = c.followUp;
+    if (reason !== (f?.reason ?? null)) {
+      await setFollowUp(c._id, followUpReset(c, now, true));
+      changed++;
+      continue;
+    }
+    if (!reason || f?.proposal || !ACTIVE.includes(c.status)) continue;
+    const from = f?.lastCheckedAt ?? f?.since ?? c.createdAt ?? now;
+    const planned = nextCheckAt(c, f?.unchanged ?? 0, from);
+    const stored = f?.nextCheckAt ?? null;
+    const fields: Record<string, unknown> = f?.since ? {} : { since: c.createdAt ?? now };
+    if (planned && (!stored || planned < stored)) {
+      fields.nextCheckAt = planned;
+      pulled++;
+    }
+    if (Object.keys(fields).length) await setFollowUp(c._id, fields);
   }
   const dueFilter: Record<string, unknown> = { status: { $in: ACTIVE }, "followUp.reason": { $ne: null }, "followUp.nextCheckAt": { $lte: now }, "followUp.proposal": null };
   const due = await Collab.countDocuments(dueFilter);
-  return { changed, due };
+  return { changed, pulled, due };
 }

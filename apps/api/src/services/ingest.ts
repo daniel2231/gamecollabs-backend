@@ -197,7 +197,12 @@ async function processCandidate(raw: unknown, index: number, ctx: Context): Prom
     regions,
     platforms,
     collabTypes,
-    period: { start: c.period.start ?? null, end: c.period.end ?? null, endKind: c.period.end ? "fixed" : c.period.endKind },
+    period: {
+      start: c.period.start ?? null,
+      end: c.period.end ?? null,
+      endKind: c.period.end ? "fixed" : c.period.endKind,
+      expectedStart: c.period.start ? null : (c.period.expectedStart ?? null),
+    },
     contentTba: c.contentTba,
     sources: sourceUrls.map((url, i) => {
       const s = bySourceUrl.get(url);

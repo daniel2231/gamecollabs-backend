@@ -175,13 +175,20 @@ docker compose exec api node dist/cli/index.js flag-content-tba --apply --slugs 
 
 날짜가 다 채워지고 내용도 확정됐거나, 종료됐거나, 보관된 콜라보는 대상에서 빠집니다. `permanent`인 콜라보는 내용이 미정일 때만 남습니다.
 
-- 일정: 첫 확인은 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 5번 연속 변화가 없으면 한 번 알림을 보내고 `escalated`로 표시합니다 (날짜를 넣거나, `permanent`로 바꾸거나, 보관할지 사람이 결정).
+- 일정 (`apps/api/src/lib/followUp.ts`): 기본은 첫 확인 3일 뒤, 이후 변화가 없을 때마다 7 → 14 → 30일 간격입니다. 여기에 날짜 기준 제한이 붙습니다. 기준일(앵커)은 시작 전인 콜라보의 시작일, `month_only`의 시작 월 1일, `start_tba`의 `expectedStart`입니다.
+  - 기준일 30·14·7일 전과 당일에는 간격과 상관없이 확인합니다. 기준일 7일 전부터와 시작 월 안에서는 3일마다 확인합니다.
+  - 이미 시작했는데 종료일(`end_tba`·`end_missing`·`end_tied`)이나 내용(`content_tba`)이 없으면 최대 7일 간격입니다. `start_tba`도 `expectedStart` 시기가 시작되면 7일 간격이 됩니다(그 시기가 지나고 30일이 더 지나면 기본 간격으로 돌아감).
+  - 기준일이 30일보다 멀면 첫 확인 이후로는 60일 간격으로 띄웁니다(30일 전 확인에서 멈춤).
+  - 어떤 경우에도 다음 확인은 하루 뒤보다 빠르지 않습니다.
+- 확인 순서 (`due`): 발행 → 검수 중 → 초안 순, 같은 상태 안에서는 진행 중 → 시작이 가까운 순 → `expectedStart`가 가까운 순 → 날짜 단서 없음, 그다음 오래 기다린 순입니다.
+- 알림(`escalated`): 연속 무변화가 2번 이상이고 다음 중 하나일 때 한 번 알림을 보냅니다. `start_tba`는 `expectedStart` 시기가 끝나고 30일이 지났을 때(없으면 대상이 된 지 120일), 종료일 사유는 시작 후 60일, `content_tba`는 시작 후 7일이 지났을 때입니다. `month_only`는 그 달이 끝나면 사유가 바뀌므로 알림이 없습니다. 날짜와 상관없이 연속 무변화 8번이면 알림을 보냅니다. 사람이 날짜를 넣거나, `permanent`·`conditional`로 바꾸거나, 보관할지 결정합니다. 대상이 된 시점은 `followUp.since`에 남습니다.
+- `expectedStart` (`YYYY-MM` 또는 `YYYY-MM-DD`): 시작일이 없을 때만, 출처가 "2027년 초", "2027년 9~12월"처럼 대략적인 시기를 줄 때 그 첫 달을 넣습니다. 확인 일정에만 쓰고 시작일로 보이지 않으며 공개 API에도 나가지 않습니다. 수집 후보, `update_collab`, `report_followup`에서 받습니다.
 - MCP 도구 (`/mcp`, `/mcp/admin` 둘 다): `list_followups`로 확인할 콜라보를 받고, `report_followup`으로 결과를 보냅니다. 예약 작업 프롬프트는 `prompts/daily-followup.md`입니다.
   - `no_change`: 다음 확인일만 뒤로 미룹니다 (`rev`는 바뀌지 않음).
   - `updated`: **초안은 바로 수정**합니다 (`rev` 확인, 변경 이력 기록, 새 출처는 기존 출처 뒤에 추가). 이때 바뀌기 전 값과 바뀐 내용을 `followUp.applied`에 남겨, 관리자가 확인할 때까지 `applied` 목록과 관리자 화면에 보입니다(여러 번 바뀌면 처음 값 → 마지막 값으로 합칩니다). **검수 중·발행된 콜라보는 수정하지 않고 제안(`followUp.proposal`)으로 저장**하고 알림을 보냅니다. 제안이 처리될 때까지 그 콜라보는 확인 대상에서 빠집니다.
 - 관리용 도구: `followup_queue`(`proposals`/`applied`/`escalated`/`due`/`queued`. `queued`는 차례가 안 된 것까지 재확인 중인 전체를 다음 확인일 순으로), `resolve_followup`(`apply`는 `update_collab`과 같은 규칙으로 반영, `rev` 필요 / `dismiss`는 제안을 버리고 확인 재개).
 - API: `GET /v1/ingest/followups`, `POST /v1/ingest/followups/:id`(수집 토큰), `GET /v1/admin/followups?view=`, `POST /v1/admin/collabs/:id/followup`(`apply`·`dismiss`·`acknowledge`, apply 시 `If-Match` 필요. `acknowledge`는 초안에 자동 반영된 변경을 확인 처리).
-- `followups` 작업이 매일 사유를 다시 계산합니다 (시간이 지나 종료되거나 `month_only`에서 벗어난 콜라보 반영, 기존 데이터 채우기). 새로 대상이 된 콜라보는 바로 확인 대상입니다. 배포 직후 한 번 `pnpm --filter @gamecollabs/api job followups`(컨테이너에서는 `node dist/cli/index.js job followups`)로 기존 데이터를 채우세요.
+- `followups` 작업이 매일 사유를 다시 계산합니다 (시간이 지나 종료되거나 `month_only`에서 벗어난 콜라보 반영, 기존 데이터 채우기). 새로 대상이 된 콜라보는 바로 확인 대상입니다. 사유가 그대로인 콜라보도 날짜 기준으로 다시 계산한 다음 확인일이 저장된 값보다 빠르면 앞당깁니다(관리자가 기간을 고쳤거나 기준일이 가까워진 경우, 예전 방식으로 잡힌 일정). 늦추지는 않습니다. 배포 직후 한 번 `pnpm --filter @gamecollabs/api job followups`(컨테이너에서는 `node dist/cli/index.js job followups`)로 기존 데이터를 채우세요.
 
 ### 관리용 MCP (`/mcp/admin`)
 
@@ -211,7 +218,7 @@ API 컨테이너 안의 스케줄러(`SCHEDULER_ENABLED=true`)가 실행하고, 
 | --- | --- | --- |
 | `link-check` | 월 04:10 | 출처 URL 상태 확인, 깨진 링크 알림 (F-10) |
 | `recount` | 매일 03:20 | `collabCount` 보정 |
-| `followups` | 매일 03:50 | 후속 확인 사유 재계산, 기존 데이터 채우기 |
+| `followups` | 매일 03:50 | 후속 확인 사유 재계산, 날짜 기준으로 다음 확인 앞당기기, 기존 데이터 채우기 |
 | `reindex-facets` | 매일 03:40 | 분류 계층 변경 후 `facetKeys` 재계산 |
 | `consistency` | 일 04:40 | 이름 스냅샷 불일치 수정 |
 | `phase-rollover` | 매일 09:02 | 날짜(UTC 자정)로 단계가 바뀐 공개 콜라보의 웹 캐시 갱신(`collab:`·`property:`·`company:` 태그) |

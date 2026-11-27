@@ -26,7 +26,9 @@ submit_collab_candidates (max ${MAX_CANDIDATES_PER_CALL} per call). Submissions 
 and published only after a person reviews them. Every candidate needs a title and a summary
 in both Korean and English, and at least one public source URL; never invent dates or
 details that the source does not state. When the start date has not been announced, leave
-period.start out: the candidate is still stored as a draft for review. When the announcement does
+period.start out: the candidate is still stored as a draft for review. If the source names a rough window
+instead ("early 2027", "September to December 2027"), give its first month as period.expectedStart (2027-01, 2027-09):
+it only schedules the re-checks. When the announcement does
 not say yet what the collab adds (items, skins, events), set contentTba: true so it is re-checked.
 Always give game.names, partner.names and companies[].names (official Korean and English
 names, plus the original-script name when it differs; for companies also country as ISO
@@ -40,7 +42,8 @@ name in Korean and English, the address as officially written, and the venue pag
 Follow-ups: collabs announced without dates (start not out, only the month known, end not announced)
 or without their content (contentTba) are re-checked on a schedule. list_followups returns the ones due; look each up again (official site,
 press release, patch notes, store page) and call report_followup once per collab: outcome "no_change"
-when nothing new is public (the next check moves back: 3, 7, 14, then 30 days), or "updated" with
+when nothing new is public (the server schedules the next check from the collab's dates: more often near the start
+and while it runs, less often far ahead), or "updated" with
 the rev from list_followups, the changed period and/or i18n (plus contentTba: false once the content
 is announced), and the source that states it. Drafts are
 updated directly; for collabs under review or published the change waits for an admin. Only report what
@@ -219,7 +222,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     "submit_collab_candidates",
     {
       title: "Submit collab candidates",
-      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one); set contentTba: true when what the collab adds is not announced yet. Give game.names / partner.names / companies[].names ({ ko, en, original? }) so a game, IP or company that is not in the tracker yet is created and linked. Returns created / duplicate / rejected per candidate with reasons.`,
+      description: `Submits up to ${MAX_CANDIDATES_PER_CALL} newly found collabs. The server re-validates everything (schema, source URL reachability, taxonomy mapping, duplicates) and stores accepted ones as drafts for human review; it never publishes. Resubmitting the same source URL does not create a second draft. Omit period.start when no start date has been announced (do not guess one); when the source names a rough window ("early 2027"), give its first month as period.expectedStart; set contentTba: true when what the collab adds is not announced yet. Give game.names / partner.names / companies[].names ({ ko, en, original? }) so a game, IP or company that is not in the tracker yet is created and linked. Returns created / duplicate / rejected per candidate with reasons.`,
       inputSchema: { candidates: z.array(IngestCandidate).min(1).max(MAX_CANDIDATES_PER_CALL) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
@@ -234,7 +237,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     {
       title: "List collabs due for a re-check",
       description:
-        "Collabs whose dates or content were not fully announced and whose next check is due, oldest first: reason start_tba (start date not out), month_only (only the month known), end_tba (end not announced), end_missing, end_tied (ends with another event whose date is not out yet), or content_tba (dates known, content not announced). Each row has id, rev, titles, summary, parties, current period, contentTba and source URLs; when contentTba is true, look for the content too, whatever the reason.",
+        "Collabs whose dates or content were not fully announced and whose next check is due, most urgent first (published before drafts, running and soonest-starting first): reason start_tba (start date not out), month_only (only the month known), end_tba (end not announced), end_missing, end_tied (ends with another event whose date is not out yet), or content_tba (dates known, content not announced). Each row has id, rev, titles, summary, parties, current period (with expectedStart, the rough start window, when the start is not out), contentTba and source URLs; when contentTba is true, look for the content too, whatever the reason.",
       inputSchema: { limit: z.number().int().min(1).max(50).default(20) },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -246,7 +249,7 @@ export function createMcpServer(api: ApiClient, opts: { admin?: boolean } = {}):
     {
       title: "Report a collab re-check",
       description:
-        'Records the result of re-checking one collab from list_followups. outcome "no_change": nothing new is public (schedules the next check). outcome "updated": pass rev (from list_followups), changes.period (complete period: start, end, endKind fixed|permanent|tba|conditional; conditional needs endCondition sold_out|tied_event|other, plus endNote {ko,en} and expectedEnd when stated; YYYY-MM-DD or YYYY-MM) and/or changes.i18n (whole ko and en title/summary) and/or changes.contentTba (false once the content is announced; send it with the i18n that describes it), and the sources stating it (added to the stored ones). Drafts are updated at once; collabs under review or published get a proposal that an admin applies or dismisses.',
+        'Records the result of re-checking one collab from list_followups. outcome "no_change": nothing new is public (schedules the next check). outcome "updated": pass rev (from list_followups), changes.period (complete period: start, end, endKind fixed|permanent|tba|conditional; conditional needs endCondition sold_out|tied_event|other, plus endNote {ko,en} and expectedEnd when stated; without start, expectedStart when a rough window is stated; YYYY-MM-DD or YYYY-MM) and/or changes.i18n (whole ko and en title/summary) and/or changes.contentTba (false once the content is announced; send it with the i18n that describes it), and the sources stating it (added to the stored ones). Drafts are updated at once; collabs under review or published get a proposal that an admin applies or dismisses.',
       inputSchema: { id_or_slug: z.string().trim().min(1).max(200).describe("id or slug from list_followups"), report: FollowUpReport },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
@@ -382,7 +385,7 @@ function registerAdminTools(server: McpServer, api: ApiClient, logged: Logged) {
     {
       title: "Update a collab (admin)",
       description:
-        "Changes fields of a collab. Each top-level field in `patch` replaces the stored value (send the whole i18n object with ko and en, the whole sources/parties/companies arrays). Parties link games/IPs with { propertyId, role: host|partner }. Dates: YYYY-MM-DD or YYYY-MM; period.endKind fixed|permanent|tba|conditional (conditional: no end date, endCondition sold_out|tied_event|other required, endNote {ko,en} and expectedEnd optional). `rev` must be the current rev from get_collab (a stale rev is refused).",
+        "Changes fields of a collab. Each top-level field in `patch` replaces the stored value (send the whole i18n object with ko and en, the whole sources/parties/companies arrays). Parties link games/IPs with { propertyId, role: host|partner }. Dates: YYYY-MM-DD or YYYY-MM; period.endKind fixed|permanent|tba|conditional (conditional: no end date, endCondition sold_out|tied_event|other required, endNote {ko,en} and expectedEnd optional; expectedStart (YYYY-MM or YYYY-MM-DD) only without start, the first month of a stated rough window). `rev` must be the current rev from get_collab (a stale rev is refused).",
       inputSchema: { id_or_slug: IdOrSlug, rev: z.number().int().min(1), patch: CollabPatch },
       annotations: { ...write, idempotentHint: true },
     },

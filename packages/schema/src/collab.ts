@@ -107,6 +107,12 @@ export const PeriodInput = z
      * Never a guess: leave it out when nothing is stated.
      */
     expectedEnd: IsoDateOrMonth.nullish(),
+    /**
+     * Only without `start`, and only when a source names a rough window ("early 2027", "September to
+     * December 2027"): the first month (`YYYY-MM`) or day of that window. Schedules the re-checks; never shown
+     * as the start. Leave it out when nothing is stated.
+     */
+    expectedStart: IsoDateOrMonth.nullish(),
   })
   .refine((p) => !(p.end && !p.start), { message: "end requires start", path: ["end"] })
   .refine((p) => !(p.start && p.end && p.end < p.start), { message: "end is before start", path: ["end"] })
@@ -125,7 +131,8 @@ export const PeriodInput = z
   .refine((p) => !(p.start && p.expectedEnd && p.expectedEnd.slice(0, 7) < p.start.slice(0, 7)), {
     message: "expectedEnd is before start",
     path: ["expectedEnd"],
-  });
+  })
+  .refine((p) => !(p.start && p.expectedStart), { message: "expectedStart is only for periods without a start", path: ["expectedStart"] });
 export type PeriodInput = z.infer<typeof PeriodInput>;
 
 export const SourceInput = z.object({

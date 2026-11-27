@@ -1,51 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Collab } from "../src/models/collab.js";
 import { Revision } from "../src/models/support.js";
-import { ESCALATE_AFTER, followUpReasonOf, nextCheckAt } from "../src/lib/followUp.js";
-import { toStoredPeriod } from "../src/lib/period.js";
+import { ESCALATE } from "../src/lib/followUp.js";
 import { refreshFollowUps } from "../src/services/followUps.js";
 import { adminJwt, apiToken, as, draftBody, seedEntities, setupDb, teardownDb } from "./helpers.js";
 
 const DAY = 86_400_000;
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const inDays = (n: number) => iso(new Date(Date.now() + n * DAY));
-
-describe("follow-up reasons", () => {
-  const now = new Date("2026-10-13T00:00:00Z");
-  const reason = (period: Parameters<typeof toStoredPeriod>[0], status = "published", contentTba = false) =>
-    followUpReasonOf({ status, period: toStoredPeriod(period), contentTba }, now);
-
-  it("derives what is still missing from the period", () => {
-    expect(reason({ endKind: "tba" }, "draft")).toBe("start_tba");
-    expect(reason({ start: "2026-11", endKind: "tba" })).toBe("month_only");
-    expect(reason({ start: "2026-10", endKind: "tba" })).toBe("month_only");
-    // Once the start month is over, the end is what matters.
-    expect(reason({ start: "2026-09", endKind: "tba" })).toBe("end_tba");
-    expect(reason({ start: "2026-10-01", endKind: "tba" })).toBe("end_tba");
-    expect(reason({ start: "2026-10-01" })).toBe("end_missing");
-  });
-
-  it("stops for complete, permanent, ended and archived collabs", () => {
-    expect(reason({ start: "2026-10-01", end: "2026-10-31" })).toBeNull();
-    expect(reason({ start: "2026-10-01", endKind: "permanent" })).toBeNull();
-    expect(reason({ start: "2026-08-01", end: "2026-09-30" })).toBeNull();
-    expect(reason({ endKind: "tba" }, "archived")).toBeNull();
-  });
-
-  it("re-checks the content once the dates are known", () => {
-    expect(reason({ start: "2026-10-01", end: "2026-10-31" }, "published", true)).toBe("content_tba");
-    expect(reason({ start: "2026-10-01", endKind: "permanent" }, "published", true)).toBe("content_tba");
-    // Missing dates come first; ended and archived collabs are not re-checked.
-    expect(reason({ endKind: "tba" }, "draft", true)).toBe("start_tba");
-    expect(reason({ start: "2026-10-01", endKind: "tba" }, "published", true)).toBe("end_tba");
-    expect(reason({ start: "2026-08-01", end: "2026-09-30" }, "published", true)).toBeNull();
-    expect(reason({ start: "2026-10-01", end: "2026-10-31" }, "archived", true)).toBeNull();
-  });
-
-  it("backs off 3 → 7 → 14 → 30 days", () => {
-    expect([0, 1, 2, 3, 9].map((n) => (nextCheckAt(n, now).getTime() - now.getTime()) / DAY)).toEqual([3, 7, 14, 30, 30]);
-  });
-});
 
 let ingest: string;
 let admin: string;
@@ -97,20 +59,63 @@ describe("follow-up queue", () => {
   });
 
   it("pushes the next check back on no_change and escalates once", async () => {
+    // No date to go by: only the backstop count escalates it.
     const c = await draft({ endKind: "tba" });
-    for (let i = 1; i <= ESCALATE_AFTER + 1; i++) {
+    for (let i = 1; i <= ESCALATE.maxChecks + 1; i++) {
       await makeDue(c.id);
       const res = await as(ingest).post(`/v1/ingest/followups/${c.slug}`).send({ outcome: "no_change" });
       expect(res.status, JSON.stringify(res.body)).toBe(200);
-      expect(res.body.data).toMatchObject({ result: "recorded", escalated: i >= ESCALATE_AFTER });
+      expect(res.body.data).toMatchObject({ result: "recorded", escalated: i >= ESCALATE.maxChecks });
     }
     const stored = await Collab.findById(c.id).lean();
-    expect(stored!.followUp.unchanged).toBe(ESCALATE_AFTER + 1);
+    expect(stored!.followUp.unchanged).toBe(ESCALATE.maxChecks + 1);
     expect(stored!.rev).toBe(c.rev); // bookkeeping never bumps rev
     expect(new Date(stored!.followUp.nextCheckAt!).getTime()).toBeGreaterThan(Date.now() + 29 * DAY);
     expect(await due()).toEqual([]);
     const escalated = await as(admin).get("/v1/admin/followups?view=escalated");
     expect(escalated.body.data.map((r: { slug: string }) => r.slug)).toEqual([c.slug]);
+  });
+
+  it("escalates a collab running without an end after 60 days and checks it weekly", async () => {
+    const c = await publish((await draft({ start: inDays(-70), endKind: "tba" })).id);
+    for (const escalated of [false, true]) {
+      await makeDue(c.id);
+      const res = await as(ingest).post(`/v1/ingest/followups/${c.slug}`).send({ outcome: "no_change" });
+      expect(res.body.data).toMatchObject({ result: "recorded", escalated });
+      const next = new Date(res.body.data.nextCheckAt).getTime();
+      expect(next).toBeLessThanOrEqual(Date.now() + 7 * DAY);
+    }
+    expect((await as(admin).get("/v1/admin/followups?view=escalated")).body.data.map((r: { slug: string }) => r.slug)).toEqual([c.slug]);
+  });
+
+  it("lists due collabs published first, then running, nearest start, expected window, undated", async () => {
+    const year = new Date().getUTCFullYear() + 1;
+    const undated = await draft({ endKind: "tba" });
+    const expected = await draft({ endKind: "tba", expectedStart: `${year}-03` });
+    const later = await draft({ start: inDays(40), endKind: "tba" });
+    const soon = await draft({ start: inDays(10), endKind: "tba" });
+    const running = await draft({ start: inDays(-3), endKind: "tba" });
+    const published = await publish((await draft({ start: inDays(-5), endKind: "tba" })).id);
+    for (const c of [undated, expected, later, soon, running, published]) await makeDue(c.id);
+    expect((await due()).map((r) => r.slug)).toEqual([published, running, soon, later, expected, undated].map((c) => c.slug));
+    const rows = await due();
+    expect(rows.find((r) => r.slug === expected.slug)).toMatchObject({ reason: "start_tba", period: { start: null, expectedStart: `${year}-03` } });
+  });
+
+  it("stores a rough start window reported by a re-check", async () => {
+    const year = new Date().getUTCFullYear() + 1;
+    const c = await draft({ endKind: "tba" });
+    const res = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev, changes: { period: { endKind: "tba", expectedStart: `${year}-09` } }, sources: [{ url: "https://example.com/window" }] });
+    expect(res.body.data).toMatchObject({ result: "applied", reason: "start_tba" });
+    const stored = await Collab.findById(c.id).lean();
+    expect(stored!.period).toMatchObject({ start: null, expectedStart: new Date(Date.UTC(year, 8, 1)), expectedStartPrecision: "month" });
+    // Not with a start.
+    const bad = await as(ingest)
+      .post(`/v1/ingest/followups/${c.id}`)
+      .send({ outcome: "updated", rev: c.rev + 1, changes: { period: { start: inDays(5), endKind: "tba", expectedStart: `${year}-09` } }, sources: [{ url: "https://example.com/w2" }] });
+    expect(bad.status).toBe(422);
   });
 
   it("applies updates to drafts with a revision and the new source", async () => {
@@ -262,6 +267,20 @@ describe("follow-up queue", () => {
 
     expect(await refreshFollowUps()).toMatchObject({ changed: 1, due: 1 });
     expect((await due()).map((r) => r.slug)).toEqual([c.slug]);
-    expect(await refreshFollowUps()).toMatchObject({ changed: 0, due: 1 });
+    expect(await refreshFollowUps()).toMatchObject({ changed: 0, pulled: 0, due: 1 });
+    expect((await Collab.findById(ended.id).lean())!.followUp.since).toBeTruthy();
+  });
+
+  it("moves a check earlier in the daily job when the dates call for it, never later", async () => {
+    const c = await draft({ start: inDays(10), end: inDays(12) }, undefined, { contentTba: true });
+    // Scheduled by the old plain back-off: a month away, past the start.
+    const late = new Date(Date.now() + 30 * DAY);
+    await Collab.updateOne({ _id: c.id }, { $set: { "followUp.nextCheckAt": late, "followUp.lastCheckedAt": new Date(), "followUp.unchanged": 3 } });
+    expect(await refreshFollowUps()).toMatchObject({ changed: 0, pulled: 1 });
+    const next = (await Collab.findById(c.id).lean())!.followUp.nextCheckAt!.getTime();
+    // 7 days before the start.
+    expect(next).toBeGreaterThan(Date.now() + 2.5 * DAY);
+    expect(next).toBeLessThan(Date.now() + 3.5 * DAY);
+    expect(await refreshFollowUps()).toMatchObject({ pulled: 0 });
   });
 });

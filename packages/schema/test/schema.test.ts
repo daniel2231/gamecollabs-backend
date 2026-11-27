@@ -29,6 +29,9 @@ describe("shared schemas", () => {
     // expected end not before start (month comparison)
     expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional", endCondition: "other", expectedEnd: "2026-10" }).success).toBe(false);
     expect(PeriodInput.safeParse({ start: "2026-11-04", endKind: "conditional", endCondition: "other", expectedEnd: "2026-11" }).success).toBe(true);
+    // expectedStart: a rough start window, only while the start is not out.
+    expect(PeriodInput.safeParse({ endKind: "tba", expectedStart: "2027-09" }).success).toBe(true);
+    expect(PeriodInput.safeParse({ start: "2027-09-10", endKind: "tba", expectedStart: "2027-09" }).success).toBe(false);
   });
 
   const i18n = { ko: { title: "게임 × IP", summary: "요약" }, en: { title: "Game x IP", summary: "Summary" } };

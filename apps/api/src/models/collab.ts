@@ -105,6 +105,9 @@ const collabSchema = new Schema(
       endNote: { type: new Schema({ ko: str, en: str }, { _id: false }), default: null },
       expectedEnd: { type: Date, default: null },
       expectedPrecision: { type: String, enum: ["day", "month", null], default: null },
+      /** No `start` yet: first day of the rough window a source gives ("early 2027"); schedules re-checks only. */
+      expectedStart: { type: Date, default: null },
+      expectedStartPrecision: { type: String, enum: ["day", "month", null], default: null },
       /** Exclusive end instant (see `untilOfPeriod`); makes phase filters a range query. */
       until: { type: Date, default: null },
     },
@@ -144,6 +147,8 @@ const collabSchema = new Schema(
       reason: { type: String, enum: [...FOLLOW_UP_REASONS, null], default: null },
       nextCheckAt: { type: Date, default: null },
       lastCheckedAt: { type: Date, default: null },
+      /** When the current reason was first queued (escalation counts from here). */
+      since: { type: Date, default: null },
       /** Checks in a row that found nothing new. */
       unchanged: { type: Number, default: 0 },
       escalatedAt: { type: Date, default: null },
@@ -232,9 +237,9 @@ collabSchema.pre("validate", async function () {
     }),
   );
 
-  const reason = followUpReasonOf({ status: this.status, period: this.period, contentTba: this.contentTba });
-  if (reason !== (this.followUp?.reason ?? null)) {
-    for (const [k, v] of Object.entries(followUpReset(reason))) this.set(`followUp.${k}`, v);
+  const subject = { status: this.status, period: this.period, contentTba: this.contentTba };
+  if (followUpReasonOf(subject) !== (this.followUp?.reason ?? null)) {
+    for (const [k, v] of Object.entries(followUpReset(subject))) this.set(`followUp.${k}`, v);
   }
 });
 

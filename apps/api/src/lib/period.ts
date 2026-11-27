@@ -17,6 +17,12 @@ export type StoredPeriod = {
   expectedEnd: Date | null;
   expectedPrecision: "day" | "month" | null;
   /**
+   * Rough start window a source gives while `start` is not out ("early 2027" → 2027-01), as its first day;
+   * `expectedStartPrecision` says day or month. Only schedules re-checks (see lib/followUp.ts).
+   */
+  expectedStart: Date | null;
+  expectedStartPrecision: "day" | "month" | null;
+  /**
    * Exclusive end instant used for phases. `fixed`: from `end` and `precision`. `conditional`: from
    * `expectedEnd`, else `start` + `CONDITIONAL_DEFAULT_DAYS` (shown as ended after that; never stored as `end`).
    * Never set by clients.
@@ -71,6 +77,7 @@ export function toStoredPeriod(input: {
   endCondition?: EndCondition | null;
   endNote?: { ko: string; en: string } | null;
   expectedEnd?: string | null;
+  expectedStart?: string | null;
 }): StoredPeriod {
   const start = input.start ? parseDateInput(input.start) : null;
   const end = input.end ? parseDateInput(input.end) : null;
@@ -80,6 +87,8 @@ export function toStoredPeriod(input: {
   const conditional = endKind === "conditional";
   const expectedEnd = conditional && input.expectedEnd ? parseDateInput(input.expectedEnd) : null;
   const expectedPrecision = expectedEnd ? (input.expectedEnd!.length === 7 ? "month" : "day") : null;
+  const expectedStart = !start && input.expectedStart ? parseDateInput(input.expectedStart) : null;
+  const expectedStartPrecision = expectedStart ? (input.expectedStart!.length === 7 ? "month" : "day") : null;
   const period = {
     start,
     end,
@@ -89,6 +98,8 @@ export function toStoredPeriod(input: {
     endNote: conditional ? (input.endNote ?? null) : null,
     expectedEnd,
     expectedPrecision,
+    expectedStart,
+    expectedStartPrecision,
   } as const;
   return { ...period, until: untilOfPeriod(period) };
 }
